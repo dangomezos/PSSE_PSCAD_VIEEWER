@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, 
     QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox)
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QIcon
 
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -139,7 +139,7 @@ class PlotCanvas(QWidget):
 
         self.btn_edit_title = QPushButton("🖉")
         self.btn_edit_title.setFixedSize(25, 25)
-        self.btn_edit_title.setToolTip("Editar título")
+        self.btn_edit_title.setToolTip("Editar gráfico")
         self.btn_edit_title.clicked.connect(self.edit_title)
 
         self.btn_reset_zoom = QPushButton("🔄")
@@ -151,6 +151,12 @@ class PlotCanvas(QWidget):
         self.btn_clear.setFixedSize(25, 25)
         self.btn_clear.setToolTip("Limpiar gráfica")
         self.btn_clear.clicked.connect(self.clear_plot)
+        
+        self.btn_delete = QPushButton('🗑')
+        # self.btn_delete.setIcon(QIcon.fromTheme("edit-delete"))  # Usa ícono del sistema, podés usar texto o path a imagen
+        self.btn_delete.setFixedSize(25, 25)
+        self.btn_delete.setToolTip("Eliminar gráfico")
+        self.btn_delete.clicked.connect(self.delete_self)       
 
         btn_container = QVBoxLayout()
         btn_container.setContentsMargins(0, 20, 0, 0)
@@ -159,12 +165,21 @@ class PlotCanvas(QWidget):
         btn_container.addWidget(self.btn_edit_title, alignment=Qt.AlignTop | Qt.AlignHCenter)
         btn_container.addWidget(self.btn_reset_zoom, alignment=Qt.AlignTop | Qt.AlignHCenter)
         btn_container.addWidget(self.btn_clear, alignment=Qt.AlignTop | Qt.AlignHCenter)
+        btn_container.addWidget(self.btn_delete, alignment=Qt.AlignTop | Qt.AlignHCenter)
 
         btn_widget = QWidget()
         btn_widget.setLayout(btn_container)
         btn_widget.setFixedWidth(30)
 
         layout.addWidget(btn_widget)
+
+    def delete_self(self):
+        parent_layout = self.parentWidget().layout
+        if parent_layout:
+            parent_layout.removeWidget(self)
+            self.setParent(None)
+            self.deleteLater()
+
 
     def add_channel(self):
         if not self.get_file_list_callback:
