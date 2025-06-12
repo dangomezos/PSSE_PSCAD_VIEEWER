@@ -119,6 +119,8 @@ class PlotCanvas(QWidget):
         super().__init__()
         self.get_file_list_callback = get_file_list_callback
         layout = QHBoxLayout(self)
+        layout.setSpacing(2)  # Reduce espacio entre canvas y botones
+        layout.setContentsMargins(0, 0, 0, 0)  # Elimina márgenes alrededor del layout
 
         self.canvas = FigureCanvas(Figure(figsize=(5, 3)))
         self.canvas.setFocusPolicy(Qt.ClickFocus)
@@ -161,11 +163,12 @@ class PlotCanvas(QWidget):
         btn_container = QVBoxLayout()
         btn_container.setContentsMargins(0, 20, 0, 0)
         btn_container.setSpacing(0)
-        btn_container.addWidget(self.btn_add_channel, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        btn_container.addWidget(self.btn_edit_title, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        btn_container.addWidget(self.btn_reset_zoom, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        btn_container.addWidget(self.btn_clear, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        btn_container.addWidget(self.btn_delete, alignment=Qt.AlignTop | Qt.AlignHCenter)
+        # btn_container.setSpacing(0)
+        btn_container.addWidget(self.btn_add_channel, alignment=Qt.AlignCenter | Qt.AlignHCenter)
+        btn_container.addWidget(self.btn_edit_title, alignment=Qt.AlignCenter | Qt.AlignHCenter)
+        btn_container.addWidget(self.btn_reset_zoom, alignment=Qt.AlignCenter | Qt.AlignHCenter)
+        btn_container.addWidget(self.btn_clear, alignment=Qt.AlignCenter | Qt.AlignHCenter)
+        btn_container.addWidget(self.btn_delete, alignment=Qt.AlignCenter | Qt.AlignHCenter)
 
         btn_widget = QWidget()
         btn_widget.setLayout(btn_container)
@@ -364,8 +367,8 @@ class PlotTab(QWidget):
         self.close_callback = close_callback
         self.get_file_list_callback = get_file_list_callback
         self.layout = QVBoxLayout(self)
-        self.layout.setSpacing(10)
-        self.layout.setContentsMargins(10, 5, 10, 5)
+        self.layout.setSpacing(0)
+        self.layout.setContentsMargins(10, 2, 10, 2)
         button_layout = QHBoxLayout()
         self.btn_add_plot = QPushButton("Agregar gráfico")
         self.btn_add_plot.clicked.connect(self.add_plot_canvas)
