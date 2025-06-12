@@ -1,6 +1,9 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog)
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, 
+    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox)
+from PyQt5.QtGui import QColor
+
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -197,14 +200,16 @@ class PlotCanvas(QWidget):
                 QMessageBox.warning(self, "Error", "No se pudieron extraer datos del canal.")
                 return
             self.ax.plot(time, values, label=new_label)
+            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.0)
         else:
             init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
             if not ok:
                 return
             time, values = get_time_and_data_from_csv(file, channel, init_time = init_time)
             self.ax.plot(time, values, label=new_label)
+            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.0)
 
-        self.ax.set_title("Channel plot")
+        # self.ax.set_title("Channel plot")
         self.ax.legend().set_picker(True)
         self.canvas.mpl_connect("pick_event", self.on_pick_legend)
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
@@ -216,10 +221,28 @@ class PlotCanvas(QWidget):
 
     def edit_title(self):
         current_title = self.ax.get_title()
-        new_title, ok = QInputDialog.getText(self, "Editar título", "Nuevo título:", text=current_title)
-        if ok:
+        current_xlabel = self.ax.get_xlabel()
+        current_ylabel = self.ax.get_ylabel()
+        lines = self.ax.get_lines()
+        current_labels = [line.get_label() for line in lines]
+        current_colors = [line.get_color() for line in lines]
+        grid_enabled = self.ax.xaxis._major_tick_kw.get('gridOn', False) and self.ax.yaxis._major_tick_kw.get('gridOn', False)
+
+        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, current_labels, current_colors, grid_enabled, self)
+        if dialog.exec_():
+            new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled = dialog.get_data()
             self.ax.set_title(new_title)
+            self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.0)
+            self.ax.set_ylabel(new_ylabel)
+            self.ax.grid(grid_enabled)
+
+            for line, new_label, new_color in zip(lines, new_labels, new_colors):
+                line.set_label(new_label)
+                line.set_color(new_color)
+
+            self.ax.legend().set_picker(True)
             self.canvas.draw()
+
 
     def reset_zoom(self):
         self.ax.autoscale()
@@ -372,6 +395,60 @@ class DualDropWidget(QWidget):
                 item = tree.topLevelItem(i)
                 files.append(item.toolTip(0))
         return files
+    
+class EditLabelsDialog(QDialog):
+    def __init__(self, current_title, current_xlabel, current_ylabel, line_labels, line_colors, grid_enabled=False, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Editar etiquetas del gráfico")
+
+        self.title_edit = QLineEdit(current_title)
+        self.xlabel_edit = QLineEdit(current_xlabel if current_xlabel else "(s)")
+        self.ylabel_edit = QLineEdit(current_ylabel)
+
+        self.legends_list = QListWidget()
+        self.color_map = {}
+
+        for label, color in zip(line_labels, line_colors):
+            item = QListWidgetItem(label)
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            item.setBackground(QColor(color))
+            self.legends_list.addItem(item)
+            self.color_map[label] = color
+
+        self.legends_list.itemDoubleClicked.connect(self.change_color)
+
+        self.grid_checkbox = QCheckBox("Mostrar grilla")
+        self.grid_checkbox.setChecked(bool(grid_enabled))
+
+        layout = QFormLayout(self)
+        layout.addRow("Título del gráfico:", self.title_edit)
+        layout.addRow("Etiqueta eje X:", self.xlabel_edit)
+        layout.addRow("Etiqueta eje Y:", self.ylabel_edit)
+
+        list_container = QHBoxLayout()
+        list_widget = QWidget()
+        list_widget.setLayout(list_container)
+        list_container.addWidget(self.legends_list)
+        layout.addRow("Leyendas (doble clic para cambiar color):", list_widget)
+        
+        layout.addRow(self.grid_checkbox)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+    def change_color(self, item):
+        current_color = item.background().color()
+        new_color = QColorDialog.getColor(current_color, self, "Seleccionar color")
+        if new_color.isValid():
+            item.setBackground(new_color)
+
+    def get_data(self):
+        labels = [self.legends_list.item(i).text() for i in range(self.legends_list.count())]
+        colors = [self.legends_list.item(i).background().color().name() for i in range(self.legends_list.count())]
+        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked()
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
