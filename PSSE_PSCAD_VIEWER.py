@@ -338,7 +338,7 @@ class PlotCanvas(QWidget):
             scale_y = (y1 - y0) / self.canvas.height()
 
             ax.set_xlim(x0 - dx * scale_x, x1 - dx * scale_x)
-            ax.set_ylim(y0 + dy * scale_y, y1 + dy * scale_y)
+            ax.set_ylim(y0 - dy * scale_y, y1 - dy * scale_y)
             self.canvas.draw()
             return
 
