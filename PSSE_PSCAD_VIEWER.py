@@ -1,7 +1,7 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, 
-    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox)
+    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar)
 from PyQt5.QtGui import QColor, QIcon
 
 from PyQt5.QtCore import Qt
@@ -115,9 +115,10 @@ class DropTreeWidget(QTreeWidget):
         event.accept()
 
 class PlotCanvas(QWidget):
-    def __init__(self, get_file_list_callback):
+    def __init__(self, get_file_list_callback, status_callback=None):
         super().__init__()
         self.get_file_list_callback = get_file_list_callback
+        self.status_callback = status_callback
         layout = QHBoxLayout(self)
         layout.setSpacing(2)  # Reduce espacio entre canvas y botones
         layout.setContentsMargins(0, 0, 0, 0)  # Elimina márgenes alrededor del layout
@@ -158,7 +159,9 @@ class PlotCanvas(QWidget):
         # self.btn_delete.setIcon(QIcon.fromTheme("edit-delete"))  # Usa ícono del sistema, podés usar texto o path a imagen
         self.btn_delete.setFixedSize(25, 25)
         self.btn_delete.setToolTip("Eliminar gráfico")
-        self.btn_delete.clicked.connect(self.delete_self)       
+        self.btn_delete.clicked.connect(self.delete_self)     
+        
+        self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)  
 
         btn_container = QVBoxLayout()
         btn_container.setContentsMargins(0, 20, 0, 0)
@@ -175,6 +178,12 @@ class PlotCanvas(QWidget):
         btn_widget.setFixedWidth(30)
 
         layout.addWidget(btn_widget)
+        
+    def on_mouse_move(self, event):
+        if event.inaxes and self.status_callback:
+            x = f"{event.xdata:.3f}"
+            y = f"{event.ydata:.3f}"
+            self.status_callback(f"x = {x}, y = {y}")
 
     def reload_plot_if_needed(self):
         # Simple replotting logic: clear and redraw all visible lines using stored data.
@@ -406,10 +415,11 @@ class PlotCanvas(QWidget):
  
 
 class PlotTab(QWidget):
-    def __init__(self, parent=None, close_callback=None, get_file_list_callback=None):
+    def __init__(self, parent=None, close_callback=None, get_file_list_callback=None, status_callback=None):
         super().__init__(parent)
         self.close_callback = close_callback
         self.get_file_list_callback = get_file_list_callback
+        self.status_callback = status_callback
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(0)
         self.layout.setContentsMargins(10, 2, 10, 2)
@@ -424,7 +434,7 @@ class PlotTab(QWidget):
         self.layout.addLayout(button_layout)
 
     def add_plot_canvas(self):
-        plot_canvas = PlotCanvas(self.get_file_list_callback)
+        plot_canvas = PlotCanvas(self.get_file_list_callback, self.status_callback)
         self.layout.addWidget(plot_canvas)
 
     def close_tab(self):
@@ -564,6 +574,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(tabs_widget, 8)
 
         self.setCentralWidget(central)
+        self.status_bar = QStatusBar()
+        self.status_bar.setLayoutDirection(Qt.RightToLeft)
+        self.setStatusBar(self.status_bar)
 
         # Agrega la primera pestaña
         self.add_new_tab()
@@ -582,7 +595,7 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(index)
             
     def add_new_tab(self):
-        tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files)
+        tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files, status_callback=self.status_bar.showMessage)
         index = self.tabs.addTab(tab, f"Gráfico {self.tabs.count() + 1}")
         self.tabs.setCurrentIndex(index)
 
