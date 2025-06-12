@@ -176,6 +176,50 @@ class PlotCanvas(QWidget):
 
         layout.addWidget(btn_widget)
 
+    def reload_plot_if_needed(self):
+        # Simple replotting logic: clear and redraw all visible lines using stored data.
+        if not hasattr(self, 'ax') or not self.ax.get_lines():
+            return
+
+        # Store info about current lines
+        lines_info = []
+        for line in self.ax.get_lines():
+            lines_info.append({
+                'label': line.get_label(),
+                'color': line.get_color(),
+                'visible': line.get_visible(),
+                'source': getattr(line, 'source_file', None),
+                'channel': getattr(line, 'channel_name', None)
+            })
+
+        self.ax.clear()
+
+        for info in lines_info:
+            file = info['source']
+            channel = info['channel']
+            if file and channel:
+                try:
+                    # from your_data_module import get_channel_data_from_out, get_time_and_data_from_csv
+                    if file.endswith('.out'):
+                        time, values = get_channel_data_from_out(file, channel)
+                    elif file.endswith('.csv'):
+                        time, values = get_time_and_data_from_csv(file, channel)
+                    else:
+                        continue
+                    line = self.ax.plot(time, values, label=info['label'], color=info['color'])[0]
+                    line.set_visible(info['visible'])
+                    line.source_file = file
+                    line.channel_name = channel
+                except Exception as e:
+                    print(f"Error recargando gráfico para {channel}: {e}")
+
+        self.ax.set_title(self.ax.get_title())
+        self.ax.set_xlabel(self.ax.get_xlabel())
+        self.ax.set_ylabel(self.ax.get_ylabel())
+        self.ax.legend().set_picker(True)
+        self.canvas.draw()
+
+
     def delete_self(self):
         parent_layout = self.parentWidget().layout
         if parent_layout:
@@ -218,14 +262,14 @@ class PlotCanvas(QWidget):
                 QMessageBox.warning(self, "Error", "No se pudieron extraer datos del canal.")
                 return
             self.ax.plot(time, values, label=new_label)
-            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.0)
+            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
         else:
             init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
             if not ok:
                 return
             time, values = get_time_and_data_from_csv(file, channel, init_time = init_time)
             self.ax.plot(time, values, label=new_label)
-            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.0)
+            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
 
         # self.ax.set_title("Channel plot")
         self.ax.legend().set_picker(True)
@@ -386,7 +430,12 @@ class PlotTab(QWidget):
     def close_tab(self):
         if self.close_callback:
             self.close_callback(self)
-
+            
+    def reload_all_plots(self):
+        for i in range(self.layout.count()):
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, PlotCanvas):
+                widget.reload_plot_if_needed()
 
 class DualDropWidget(QWidget):
     def __init__(self):
@@ -473,6 +522,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PSSE/PSCAD ViEEwer")
         self.resize(1200, 700)
 
+        # Establece el ícono de la aplicación
+        self.setWindowIcon(QIcon("icono.ico"))
+
         # Panel izquierdo: archivos divididos
         self.dual_tree = DualDropWidget()
 
@@ -483,10 +535,23 @@ class MainWindow(QMainWindow):
 
         # Botón para agregar nueva pestaña
         self.btn_new_tab = QPushButton("+ Nueva pestaña")
+        self.btn_new_tab.setMinimumWidth(180)      
         self.btn_new_tab.clicked.connect(self.add_new_tab)
-
+        
+        self.btn_reload = QPushButton("↻ Recargar archivos")
+        self.btn_reload.setMinimumWidth(180)
+        self.btn_reload.setEnabled(False)
+        self.btn_reload.clicked.connect(self.reload_files)
+        btn_layout = QHBoxLayout()
+        # btn_layout.addStretch()
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(10)
+        btn_layout.addWidget(self.btn_new_tab)
+        btn_layout.addWidget(self.btn_reload)
+        
         top_layout = QVBoxLayout()
-        top_layout.addWidget(self.btn_new_tab)
+        # top_layout.addWidget(self.btn_new_tab)
+        top_layout.addLayout(btn_layout)
         top_layout.addWidget(self.tabs)
 
         tabs_widget = QWidget()
@@ -522,9 +587,11 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(index)
 
     def remove_tab(self, tab_widget):
-        index = self.tabs.indexOf(tab_widget)
-        if index != -1:
-            self.tabs.removeTab(index)
+        reply = QMessageBox.question(self, "Confirmar eliminación", "¿Estás seguro de que deseas eliminar esta pestaña?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            index = self.tabs.indexOf(tab_widget)
+            if index != -1:
+                self.tabs.removeTab(index)
 
     def rename_tab(self, index):
         if index != -1:
@@ -533,9 +600,16 @@ class MainWindow(QMainWindow):
             if ok and new_name:
                 self.tabs.setTabText(index, new_name)
 
+    def reload_files(self):
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if hasattr(tab, 'reload_all_plots'):
+                tab.reload_all_plots()
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("icono.ico"))
     win = MainWindow()
     win.show()
     sys.exit(app.exec_())
