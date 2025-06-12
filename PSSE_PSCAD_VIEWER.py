@@ -479,6 +479,7 @@ class MainWindow(QMainWindow):
         # Zona de pestañas
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(False)
+        self.tabs.tabBarDoubleClicked.connect(self.rename_tab)
 
         # Botón para agregar nueva pestaña
         self.btn_new_tab = QPushButton("+ Nueva pestaña")
@@ -524,6 +525,14 @@ class MainWindow(QMainWindow):
         index = self.tabs.indexOf(tab_widget)
         if index != -1:
             self.tabs.removeTab(index)
+
+    def rename_tab(self, index):
+        if index != -1:
+            current_name = self.tabs.tabText(index)
+            new_name, ok = QInputDialog.getText(self, "Renombrar pestaña", "Nuevo nombre:", text=current_name)
+            if ok and new_name:
+                self.tabs.setTabText(index, new_name)
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
