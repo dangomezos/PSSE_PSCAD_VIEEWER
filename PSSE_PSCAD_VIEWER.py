@@ -7,6 +7,8 @@ from PyQt5.QtGui import QColor, QIcon
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+import os
 import sys, os
 import psse35
 import dyntools as dy
@@ -443,6 +445,32 @@ class PlotTab(QWidget):
 
         self.layout.addLayout(button_layout)
 
+    def export_plots_combined(self, directory, base_name):
+        plots = [self.layout.itemAt(i).widget() for i in range(self.layout.count()) if isinstance(self.layout.itemAt(i).widget(), PlotCanvas)]
+        if not plots:
+            return
+
+        fig, axs = plt.subplots(len(plots), 1, figsize=(10, 4 * len(plots)))
+        if len(plots) == 1:
+            axs = [axs]
+        for ax, plot in zip(axs, plots):
+            lines = plot.ax.get_lines()
+            for line in lines:
+                ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label(), color=line.get_color())
+            ax.set_xlim(plot.ax.get_xlim())
+            ax.set_ylim(plot.ax.get_ylim())
+            ax.set_title(plot.ax.get_title())
+            ax.set_xlabel(plot.ax.get_xlabel())
+            ax.set_ylabel(plot.ax.get_ylabel())
+            # ax.grid(True)
+            xgrid = any(line.get_visible() for line in plot.ax.get_xgridlines())
+            ygrid = any(line.get_visible() for line in plot.ax.get_ygridlines())
+            ax.grid(xgrid and ygrid)            
+            ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(directory, f"{base_name}.png"))
+        plt.close(fig)
+
     def add_plot_canvas(self):
         plot_canvas = PlotCanvas(self.get_file_list_callback, self.status_callback, parent_tab=self)
         self.layout.addWidget(plot_canvas)
@@ -572,6 +600,12 @@ class MainWindow(QMainWindow):
         self.btn_reload.setMinimumWidth(180)
         self.btn_reload.setEnabled(False)
         self.btn_reload.clicked.connect(self.reload_files)
+        
+        self.btn_export = QPushButton("🖼 Exportar gráficos")
+        self.btn_export.setMaximumWidth(140)
+        self.btn_export.clicked.connect(self.export_all_plots)
+        
+        
         btn_layout = QHBoxLayout()
         # btn_layout.addStretch()
         btn_layout.setContentsMargins(0, 0, 0, 0)
@@ -583,6 +617,7 @@ class MainWindow(QMainWindow):
         # top_layout.addWidget(self.btn_new_tab)
         top_layout.addLayout(btn_layout)
         top_layout.addWidget(self.tabs)
+        btn_layout.addWidget(self.btn_export)
 
         tabs_widget = QWidget()
         tabs_widget.setLayout(top_layout)
@@ -638,6 +673,15 @@ class MainWindow(QMainWindow):
             tab = self.tabs.widget(i)
             if hasattr(tab, 'reload_all_plots'):
                 tab.reload_all_plots()
+    def export_all_plots(self):
+        save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta para exportar", "")
+        if save_dir:
+            for i in range(self.tabs.count()):
+                tab = self.tabs.widget(i)
+                tab_name = self.tabs.tabText(i)
+                if hasattr(tab, 'export_plots_combined'):
+                    tab.export_plots_combined(save_dir, tab_name) 
+                    # self.statusBar().showMessage(f"Exportación completada: {tab_name}.png", 5000) 
 
 
 if __name__ == '__main__':
