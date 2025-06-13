@@ -115,13 +115,15 @@ class DropTreeWidget(QTreeWidget):
         event.accept()
 
 class PlotCanvas(QWidget):
-    def __init__(self, get_file_list_callback, status_callback=None):
+    def __init__(self, get_file_list_callback, status_callback=None, parent_tab=None):
         super().__init__()
         self.get_file_list_callback = get_file_list_callback
         self.status_callback = status_callback
+        self.parent_tab = parent_tab
         layout = QHBoxLayout(self)
         layout.setSpacing(2)  # Reduce espacio entre canvas y botones
         layout.setContentsMargins(0, 0, 0, 0)  # Elimina márgenes alrededor del layout
+        self.synchronizing = False
 
         self.canvas = FigureCanvas(Figure(figsize=(5, 3)))
         self.canvas.setFocusPolicy(Qt.ClickFocus)
@@ -162,6 +164,7 @@ class PlotCanvas(QWidget):
         self.btn_delete.clicked.connect(self.delete_self)     
         
         self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)  
+        self.ax.callbacks.connect("xlim_changed", self.on_xlim_changed)
 
         btn_container = QVBoxLayout()
         btn_container.setContentsMargins(0, 20, 0, 0)
@@ -178,11 +181,17 @@ class PlotCanvas(QWidget):
         btn_widget.setFixedWidth(30)
 
         layout.addWidget(btn_widget)
+    
+    def on_xlim_changed(self, ax):
+        if self.synchronizing:
+            return
+        if self.parent_tab:
+            self.parent_tab.synchronize_xlim(self.ax)
         
     def on_mouse_move(self, event):
         if event.inaxes and self.status_callback:
-            x = f"{event.xdata:.3f}"
-            y = f"{event.ydata:.3f}"
+            x = f"{event.xdata:.5f}"
+            y = f"{event.ydata:.5f}"
             self.status_callback(f"x = {x}, y = {y}")
 
     def reload_plot_if_needed(self):
@@ -420,6 +429,7 @@ class PlotTab(QWidget):
         self.close_callback = close_callback
         self.get_file_list_callback = get_file_list_callback
         self.status_callback = status_callback
+        self.synchronizing = False
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(0)
         self.layout.setContentsMargins(10, 2, 10, 2)
@@ -434,7 +444,7 @@ class PlotTab(QWidget):
         self.layout.addLayout(button_layout)
 
     def add_plot_canvas(self):
-        plot_canvas = PlotCanvas(self.get_file_list_callback, self.status_callback)
+        plot_canvas = PlotCanvas(self.get_file_list_callback, self.status_callback, parent_tab=self)
         self.layout.addWidget(plot_canvas)
 
     def close_tab(self):
@@ -446,6 +456,16 @@ class PlotTab(QWidget):
             widget = self.layout.itemAt(i).widget()
             if isinstance(widget, PlotCanvas):
                 widget.reload_plot_if_needed()
+
+    def synchronize_xlim(self, source_ax):
+        new_xlim = source_ax.get_xlim()
+        for i in range(self.layout.count()):
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, PlotCanvas) and widget.ax != source_ax:
+                widget.synchronizing = True
+                widget.ax.set_xlim(new_xlim)
+                widget.canvas.draw()
+                widget.synchronizing = False
 
 class DualDropWidget(QWidget):
     def __init__(self):
