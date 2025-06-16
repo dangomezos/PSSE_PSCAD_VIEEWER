@@ -197,11 +197,11 @@ class PlotCanvas(QWidget):
             self.status_callback(f"x = {x}, y = {y}")
 
     def reload_plot_if_needed(self):
-        # Simple replotting logic: clear and redraw all visible lines using stored data.
+        # Verifica que existan líneas para recargar
         if not hasattr(self, 'ax') or not self.ax.get_lines():
             return
 
-        # Store info about current lines
+        # Guarda información de las líneas actuales
         lines_info = []
         for line in self.ax.get_lines():
             lines_info.append({
@@ -211,32 +211,48 @@ class PlotCanvas(QWidget):
                 'source': getattr(line, 'source_file', None),
                 'channel': getattr(line, 'channel_name', None)
             })
-
-        self.ax.clear()
-
+        xlim = self.ax.get_xlim()
+        self.ax.cla()
+        print(lines_info)
         for info in lines_info:
             file = info['source']
+            print(file)
             channel = info['channel']
-            if file and channel:
+
+            if file and channel and os.path.isfile(file):
                 try:
-                    # from your_data_module import get_channel_data_from_out, get_time_and_data_from_csv
                     if file.endswith('.out'):
                         time, values = get_channel_data_from_out(file, channel)
                     elif file.endswith('.csv'):
                         time, values = get_time_and_data_from_csv(file, channel)
                     else:
                         continue
+
+                    print(f"Recargando {channel} desde {file}")
                     line = self.ax.plot(time, values, label=info['label'], color=info['color'])[0]
                     line.set_visible(info['visible'])
                     line.source_file = file
                     line.channel_name = channel
+                    self.ax.set_xlim(xlim)
+                    self.ax.callbacks.connect("xlim_changed", self.on_xlim_changed)
                 except Exception as e:
-                    print(f"Error recargando gráfico para {channel}: {e}")
+                    print(f"Error recargando gráfico para {channel} en {file}: {e}")
+            else:
+                print(f"Archivo no encontrado o canal inválido: {file}, canal: {channel}")
+                msg = f"Archivo no encontrado o canal inválido:\n{file}\nCanal: {channel}"
+                print(msg)  # Sigue siendo útil para depuración en consola
+                QMessageBox.warning(self, "Error al recargar", msg)
 
         self.ax.set_title(self.ax.get_title())
         self.ax.set_xlabel(self.ax.get_xlabel())
         self.ax.set_ylabel(self.ax.get_ylabel())
-        self.ax.legend().set_picker(True)
+
+        # Solo crea la leyenda si hay líneas con etiquetas válidas
+        valid_lines = [line for line in self.ax.get_lines()
+                    if line.get_label() and not line.get_label().startswith('_')]
+        if valid_lines:
+            self.ax.legend().set_picker(True)
+
         self.canvas.draw()
 
 
@@ -281,14 +297,19 @@ class PlotCanvas(QWidget):
             if not time or not values:
                 QMessageBox.warning(self, "Error", "No se pudieron extraer datos del canal.")
                 return
-            self.ax.plot(time, values, label=new_label)
+            line = self.ax.plot(time, values, label=new_label)[0]
+            line.source_file = file
+            line.channel_name = channel
             self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
+            
         else:
             init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
             if not ok:
                 return
             time, values = get_time_and_data_from_csv(file, channel, init_time = init_time)
-            self.ax.plot(time, values, label=new_label)
+            line = self.ax.plot(time, values, label=new_label)[0]
+            line.source_file = file
+            line.channel_name = channel
             self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
 
         # self.ax.set_title("Channel plot")
@@ -331,7 +352,8 @@ class PlotCanvas(QWidget):
         self.canvas.draw()
 
     def clear_plot(self):
-        self.ax.clear()
+        self.ax.cla()
+        self.ax.callbacks.connect("xlim_changed", self.on_xlim_changed)
         self.ax.set_title("")
         self.canvas.draw()
 
@@ -598,7 +620,7 @@ class MainWindow(QMainWindow):
         
         self.btn_reload = QPushButton("↻ Recargar archivos")
         self.btn_reload.setMinimumWidth(180)
-        self.btn_reload.setEnabled(False)
+        # self.btn_reload.setEnabled(False)
         self.btn_reload.clicked.connect(self.reload_files)
         
         self.btn_export = QPushButton("🖼 Exportar gráficos")
@@ -681,7 +703,7 @@ class MainWindow(QMainWindow):
                 tab_name = self.tabs.tabText(i)
                 if hasattr(tab, 'export_plots_combined'):
                     tab.export_plots_combined(save_dir, tab_name) 
-                    # self.statusBar().showMessage(f"Exportación completada: {tab_name}.png", 5000) 
+                    self.statusBar().showMessage(f"Exportación completada: {tab_name}.png", 5000) 
 
 
 if __name__ == '__main__':
