@@ -209,6 +209,10 @@ class PlotCanvas(QWidget):
         if not hasattr(self, 'ax') or not self.ax.get_lines():
             return
 
+        prev_title = self.ax.get_title()
+        prev_xlabel = self.ax.get_xlabel()
+        prev_ylabel = self.ax.get_ylabel()
+        grid_on = self.ax.xaxis._major_tick_kw.get('gridOn', False) and self.ax.yaxis._major_tick_kw.get('gridOn', False)
         # Save current lines information
         lines_info = []
         for line in self.ax.get_lines():
@@ -251,9 +255,10 @@ class PlotCanvas(QWidget):
                 print(msg)  # Sigue siendo útil para depuración en consola
                 QMessageBox.warning(self, "Error al recargar", msg)
 
-        self.ax.set_title(self.ax.get_title())
-        self.ax.set_xlabel(self.ax.get_xlabel())
-        self.ax.set_ylabel(self.ax.get_ylabel())
+        self.ax.set_title(prev_title)
+        self.ax.set_xlabel(prev_xlabel)
+        self.ax.set_ylabel(prev_ylabel)
+        self.ax.grid(grid_on)
 
         # Solo crea la leyenda si hay líneas con etiquetas válidas
         valid_lines = [line for line in self.ax.get_lines()
@@ -833,6 +838,15 @@ class MainWindow(QMainWindow):
                 plot_canvas.ax.set_xlabel(plot_info.get("xlabel", ""))
                 plot_canvas.ax.set_ylabel(plot_info.get("ylabel", ""))
                 plot_canvas.ax.grid(plot_info.get("grid", False))
+                
+                ## Conect events
+                plot_canvas.canvas.mpl_connect("pick_event", plot_canvas.on_pick_legend)
+                plot_canvas.canvas.mpl_connect("scroll_event", plot_canvas.on_scroll)
+                plot_canvas.canvas.mpl_connect("motion_notify_event", plot_canvas.on_mouse_drag)
+                plot_canvas.canvas.mpl_connect("button_press_event", plot_canvas.on_mouse_press)
+                plot_canvas.canvas.mpl_connect("button_release_event", plot_canvas.on_mouse_release)
+                plot_canvas._last_mouse_pos = None                
+                
                 for line_info in plot_info["lines"]:
                     file = line_info["file"]
                     channel = line_info["channel"]

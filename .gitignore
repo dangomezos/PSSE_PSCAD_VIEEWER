@@ -1,2 +1,38 @@
 _old
-venv
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Compilación
+build/
+dist/
+*.egg-info/
+
+# Logs y temporales
+*.log
+*.tmp
+*.bak
+
+# IDEs
+.vscode/
+.idea/
+
+# Archivos de simulación
+*.out
+*.csv
+*.json
+*.xml
+
+# Templates temporales
+*.viztemplate
+
+# Otros
+.DS_Store
+Thumbs.db
