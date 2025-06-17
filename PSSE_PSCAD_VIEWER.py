@@ -16,10 +16,12 @@ import pandas as pd
 import subprocess
 import json
 
-# Simulación de lectura de canales desde archivo .out
 
+__version__ = "1.0.0"
+
+# Simulación de lectura de canales desde archivo .out
 def get_channel_data_from_out(filepath, channel_name):
-    
+    # Read .OUT and extract time and data for a specific column
     try:
         chnfobj = dy.CHNF(filepath)
         short_title, ch_id, ch_data = chnfobj.get_data()
@@ -46,6 +48,7 @@ def get_channel_data_from_out(filepath, channel_name):
 
 
 def get_channels_from_out(filepath):
+    # Read .OUT and extract time and data for a specific column
     channels = []
     try:
         chnfobj = dy.CHNF(filepath)
@@ -74,6 +77,7 @@ def get_channels_from_out(filepath):
     return list(channels)
 
 def get_channels_from_csv(filepath):
+    # Read CSV and extract time and data for a specific column
     try:
         df = pd.read_csv(filepath)
         return list(df.columns[1:])  # Ignora la primera columna (tiempo)
@@ -82,6 +86,7 @@ def get_channels_from_csv(filepath):
         return []
 
 def get_time_and_data_from_csv(filepath, column, init_time = 2):
+    # Read CSV and extract time and data for a specific column
     try:
         df = pd.read_csv(filepath)
         df = df[df.iloc[:, 0] >= init_time].copy()
@@ -98,15 +103,18 @@ class DropTreeWidget(QTreeWidget):
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event):
+        # Allow dragging files into the tree
         if event.mimeData().hasUrls():
             event.accept()
         else:
             event.ignore()
 
     def dragMoveEvent(self, event):
+        # Allow dragging files over the tree
         event.accept()
 
     def dropEvent(self, event):
+        # drop files into the tree
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 filepath = url.toLocalFile()
@@ -197,11 +205,11 @@ class PlotCanvas(QWidget):
             self.status_callback(f"x = {x}, y = {y}")
 
     def reload_plot_if_needed(self):
-        # Verifica que existan líneas para recargar
+        # Verify if the plot has lines to reload
         if not hasattr(self, 'ax') or not self.ax.get_lines():
             return
 
-        # Guarda información de las líneas actuales
+        # Save current lines information
         lines_info = []
         for line in self.ax.get_lines():
             lines_info.append({
@@ -257,6 +265,7 @@ class PlotCanvas(QWidget):
 
 
     def delete_self(self):
+        # Remove this widget from its parent layout and delete it
         parent_layout = self.parentWidget().layout
         if parent_layout:
             parent_layout.removeWidget(self)
@@ -265,6 +274,7 @@ class PlotCanvas(QWidget):
 
 
     def add_channel(self):
+        # Plot channel from file
         if not self.get_file_list_callback:
             return
         files = self.get_file_list_callback()
@@ -323,6 +333,7 @@ class PlotCanvas(QWidget):
         self.canvas.draw()
 
     def edit_title(self):
+        # Open a dialog to edit the title, x-label, y-label, and legend labels/colors
         current_title = self.ax.get_title()
         current_xlabel = self.ax.get_xlabel()
         current_ylabel = self.ax.get_ylabel()
@@ -348,26 +359,31 @@ class PlotCanvas(QWidget):
 
 
     def reset_zoom(self):
+        # Reset the x and y limits to their original state
         self.ax.autoscale()
         self.canvas.draw()
 
     def clear_plot(self):
+        # Clear the plot and reset the axes
         self.ax.cla()
         self.ax.callbacks.connect("xlim_changed", self.on_xlim_changed)
         self.ax.set_title("")
         self.canvas.draw()
 
     def on_mouse_press(self, event):
+        # Store the initial position and limits for panning
         if event.button == 1:
             self._drag_start = (event.x, event.y)
             self._drag_xlim = self.ax.get_xlim()
             self._drag_ylim = self.ax.get_ylim()
 
     def on_mouse_release(self, event):
+        # Reset drag start position on mouse release
         if event.button == 1:
             self._drag_start = None
 
     def on_mouse_drag(self, event):
+        # Handle mouse drag for panning
         if hasattr(self, '_drag_start') and self._drag_start and event.button == 1:
             dx = event.x - self._drag_start[0]
             dy = event.y - self._drag_start[1]
@@ -412,6 +428,7 @@ class PlotCanvas(QWidget):
             self._last_mouse_pos = None
 
     def on_scroll(self, event):
+        # Zoom in/out on scroll
         base_scale = 1.2
         ax = self.ax
         x_min, x_max = ax.get_xlim()
@@ -436,6 +453,7 @@ class PlotCanvas(QWidget):
         self.canvas.draw()
 
     def on_pick_legend(self, event):
+        # Toggle visibility of lines based on legend item pick
         legend_line = event.artist
         label = legend_line.get_label()
         for line in self.ax.get_lines():
@@ -468,6 +486,7 @@ class PlotTab(QWidget):
         self.layout.addLayout(button_layout)
 
     def export_plots_combined(self, directory, base_name):
+        # Export all plots in this tab as a single PNG file
         plots = [self.layout.itemAt(i).widget() for i in range(self.layout.count()) if isinstance(self.layout.itemAt(i).widget(), PlotCanvas)]
         if not plots:
             return
@@ -494,20 +513,24 @@ class PlotTab(QWidget):
         plt.close(fig)
 
     def add_plot_canvas(self):
+        # Create a new PlotCanvas and add it to the layout
         plot_canvas = PlotCanvas(self.get_file_list_callback, self.status_callback, parent_tab=self)
         self.layout.addWidget(plot_canvas)
 
     def close_tab(self):
+        # Ask for confirmation before closing the tab
         if self.close_callback:
             self.close_callback(self)
             
     def reload_all_plots(self):
+        # Reload all PlotCanvas widgets in this tab
         for i in range(self.layout.count()):
             widget = self.layout.itemAt(i).widget()
             if isinstance(widget, PlotCanvas):
                 widget.reload_plot_if_needed()
 
     def synchronize_xlim(self, source_ax):
+        # Synchronize x-axis limits across all PlotCanvas widgets in this tab
         new_xlim = source_ax.get_xlim()
         for i in range(self.layout.count()):
             widget = self.layout.itemAt(i).widget()
@@ -536,6 +559,7 @@ class DualDropWidget(QWidget):
         layout.addWidget(self.tree_pscad)
 
     def get_all_files(self):
+        ## Used for get all files loaded in the dual tree
         files = []
         for tree in [self.tree_psse, self.tree_pscad]:
             for i in range(tree.topLevelItemCount()):
@@ -586,12 +610,14 @@ class EditLabelsDialog(QDialog):
         layout.addWidget(buttons)
         
     def change_color(self, item):
+        ## Used for change the color of the item in the legends list
         current_color = item.background().color()
         new_color = QColorDialog.getColor(current_color, self, "Seleccionar color")
         if new_color.isValid():
             item.setBackground(new_color)
 
     def get_data(self):
+        ## Used for get the data from the dialog
         labels = [self.legends_list.item(i).text() for i in range(self.legends_list.count())]
         colors = [self.legends_list.item(i).background().color().name() for i in range(self.legends_list.count())]
         return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked()
@@ -623,6 +649,13 @@ class MainWindow(QMainWindow):
         # self.btn_reload.setEnabled(False)
         self.btn_reload.clicked.connect(self.reload_files)
         
+        self.btn_save_template = QPushButton("💾 Guardar plantilla")
+        self.btn_save_template.setMaximumWidth(140)
+        self.btn_save_template.clicked.connect(self.save_template)
+        self.btn_load_template = QPushButton("📂 Cargar plantilla")
+        self.btn_load_template.setMaximumWidth(140)
+        self.btn_load_template.clicked.connect(self.load_template)
+       
         self.btn_export = QPushButton("🖼 Exportar gráficos")
         self.btn_export.setMaximumWidth(140)
         self.btn_export.clicked.connect(self.export_all_plots)
@@ -643,7 +676,9 @@ class MainWindow(QMainWindow):
 
         tabs_widget = QWidget()
         tabs_widget.setLayout(top_layout)
-
+        btn_layout.addWidget(self.btn_save_template)
+        btn_layout.addWidget(self.btn_load_template)
+        
         # Diseño principal
         central = QWidget()
         layout = QHBoxLayout(central)
@@ -659,24 +694,29 @@ class MainWindow(QMainWindow):
         self.add_new_tab()
 
     def get_loaded_files(self):
+        ## Used for get all files loaded in the dual tree
         return self.dual_tree.get_all_files()
 
-    def add_new_tab(self):
-        tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files)
-        index = self.tabs.addTab(tab, f"Gráfico {self.tabs.count() + 1}")
-        self.tabs.setCurrentIndex(index)
+    # def add_new_tab(self):
+    #     ## Used for add a new tab with a PlotTab widget
+    #     tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files)
+    #     index = self.tabs.addTab(tab, f"Gráfico {self.tabs.count() + 1}")
+    #     self.tabs.setCurrentIndex(index)
 
-    def remove_tab(self, tab_widget):
-        index = self.tabs.indexOf(tab_widget)
-        if index != -1:
-            self.tabs.removeTab(index)
+    # def remove_tab(self, tab_widget):
+    #     ## Used for remove the tab
+    #     index = self.tabs.indexOf(tab_widget)
+    #     if index != -1:
+    #         self.tabs.removeTab(index)
             
     def add_new_tab(self):
+        ## Used for add a new tab with a PlotTab widget
         tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files, status_callback=self.status_bar.showMessage)
         index = self.tabs.addTab(tab, f"Gráfico {self.tabs.count() + 1}")
         self.tabs.setCurrentIndex(index)
 
     def remove_tab(self, tab_widget):
+        ## Used for remove the tab
         reply = QMessageBox.question(self, "Confirmar eliminación", "¿Estás seguro de que deseas eliminar esta pestaña?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             index = self.tabs.indexOf(tab_widget)
@@ -684,6 +724,7 @@ class MainWindow(QMainWindow):
                 self.tabs.removeTab(index)
 
     def rename_tab(self, index):
+        ## Used for rename the tab
         if index != -1:
             current_name = self.tabs.tabText(index)
             new_name, ok = QInputDialog.getText(self, "Renombrar pestaña", "Nuevo nombre:", text=current_name)
@@ -691,11 +732,13 @@ class MainWindow(QMainWindow):
                 self.tabs.setTabText(index, new_name)
 
     def reload_files(self):
+        ## Used for reload all plots in the tabs
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if hasattr(tab, 'reload_all_plots'):
                 tab.reload_all_plots()
     def export_all_plots(self):
+        ## Used for export all plots in the tabs as PNG files
         save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta para exportar", "")
         if save_dir:
             for i in range(self.tabs.count()):
@@ -705,6 +748,112 @@ class MainWindow(QMainWindow):
                     tab.export_plots_combined(save_dir, tab_name) 
                     self.statusBar().showMessage(f"Exportación completada: {tab_name}.png", 5000) 
 
+    def save_template(self):
+        ## Used for save templates in JSON format
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar plantilla", "", "Plantilla JSON (*.json)")
+        if not path:
+            return
+        template = []
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            tab_data = {"name": self.tabs.tabText(i), "plots": []}
+            for j in range(tab.layout.count()):
+                widget = tab.layout.itemAt(j).widget()
+                if isinstance(widget, PlotCanvas):
+                    grid_on = widget.ax.xaxis._major_tick_kw.get('gridOn', False) and widget.ax.yaxis._major_tick_kw.get('gridOn', False)
+                    plot_info = {
+                        "title": widget.ax.get_title(),
+                        "xlabel": widget.ax.get_xlabel(),
+                        "ylabel": widget.ax.get_ylabel(),
+                        "lines": [],
+                        "xlim": widget.ax.get_xlim(),
+                        "ylim": widget.ax.get_ylim(),
+                        "grid": widget.ax.xaxis._major_tick_kw.get('gridOn', False) and widget.ax.yaxis._major_tick_kw.get('gridOn', False)
+                    }
+                    for line in widget.ax.get_lines():
+                        plot_info["lines"].append({
+                            "file": getattr(line, "source_file", None),
+                            "channel": getattr(line, "channel_name", None),
+                            "label": line.get_label(),
+                            "color": line.get_color(),
+                            "visible": line.get_visible(),
+                        })
+                    tab_data["plots"].append(plot_info)
+            template.append(tab_data)
+
+
+            template_data = {
+                "tabs": template,
+                "files": {
+                    "psse": [self.dual_tree.tree_psse.topLevelItem(i).toolTip(0) for i in range(self.dual_tree.tree_psse.topLevelItemCount())],
+                    "pscad": [self.dual_tree.tree_pscad.topLevelItem(i).toolTip(0) for i in range(self.dual_tree.tree_pscad.topLevelItemCount())]
+                }
+            }
+                
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(template_data, f, indent=2)
+        self.statusBar().showMessage("Plantilla guardada.", 3000)
+
+    def load_template(self):
+        # Used for load templates in JSON format
+    
+        path, _ = QFileDialog.getOpenFileName(self, "Cargar plantilla", "", "Plantilla JSON (*.json)")
+        if not path:
+            return
+        with open(path, "r", encoding="utf-8") as f:
+            template_data = json.load(f)
+
+        # Limpiar los árboles
+        self.dual_tree.tree_psse.clear()
+        self.dual_tree.tree_pscad.clear()
+
+        # Restaurar archivos en los árboles
+        try:
+            for file in template_data.get("files", {}).get("psse", []):
+                if os.path.isfile(file):
+                    item = QTreeWidgetItem([os.path.basename(file)])
+                    item.setToolTip(0, file)
+                    self.dual_tree.tree_psse.addTopLevelItem(item)
+            for file in template_data.get("files", {}).get("pscad", []):
+                if os.path.isfile(file):
+                    item = QTreeWidgetItem([os.path.basename(file)])
+                    item.setToolTip(0, file)
+                    self.dual_tree.tree_pscad.addTopLevelItem(item)
+        except AttributeError as e:
+            QMessageBox.warning(self, "Error al cargar archivos", f"No se pudieron cargar algunos archivos:\n{e}")
+        # Restaurar las pestañas y gráficos como antes
+        self.tabs.clear()
+        for tab_data in template_data["tabs"]:
+            tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files, status_callback=self.status_bar.showMessage)
+            self.tabs.addTab(tab, tab_data["name"])
+            for plot_info in tab_data["plots"]:
+                plot_canvas = PlotCanvas(self.get_loaded_files, self.status_bar.showMessage, parent_tab=tab)
+                tab.layout.addWidget(plot_canvas)
+                plot_canvas.ax.set_title(plot_info.get("title", ""))
+                plot_canvas.ax.set_xlabel(plot_info.get("xlabel", ""))
+                plot_canvas.ax.set_ylabel(plot_info.get("ylabel", ""))
+                plot_canvas.ax.grid(plot_info.get("grid", False))
+                for line_info in plot_info["lines"]:
+                    file = line_info["file"]
+                    channel = line_info["channel"]
+                    if file and channel and os.path.isfile(file):
+                        if file.endswith(".out"):
+                            time, values = get_channel_data_from_out(file, channel)
+                        elif file.endswith(".csv"):
+                            time, values = get_time_and_data_from_csv(file, channel)
+                        else:
+                            continue
+                        line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"])[0]
+                        line.set_visible(line_info.get("visible", True))
+                        line.source_file = file
+                        line.channel_name = channel
+                if "xlim" in plot_info:
+                    plot_canvas.ax.set_xlim(plot_info["xlim"])
+                if "ylim" in plot_info:
+                    plot_canvas.ax.set_ylim(plot_info["ylim"])
+                plot_canvas.ax.legend().set_picker(True)
+                plot_canvas.canvas.draw()
+        self.statusBar().showMessage("Plantilla cargada.", 3000)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
