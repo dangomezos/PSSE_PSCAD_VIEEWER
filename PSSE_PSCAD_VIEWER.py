@@ -351,7 +351,7 @@ class PlotCanvas(QWidget):
         if dialog.exec_():
             new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled = dialog.get_data()
             self.ax.set_title(new_title)
-            self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.0)
+            self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.02, labelpad=-10)
             self.ax.set_ylabel(new_ylabel)
             self.ax.grid(grid_enabled)
 
@@ -506,7 +506,7 @@ class PlotTab(QWidget):
             ax.set_xlim(plot.ax.get_xlim())
             ax.set_ylim(plot.ax.get_ylim())
             ax.set_title(plot.ax.get_title())
-            ax.set_xlabel(plot.ax.get_xlabel())
+            ax.set_xlabel(plot.ax.get_xlabel(), horizontalalignment='right', x=1.02, labelpad=-10)
             ax.set_ylabel(plot.ax.get_ylabel())
             # ax.grid(True)
             xgrid = any(line.get_visible() for line in plot.ax.get_xgridlines())
@@ -835,7 +835,7 @@ class MainWindow(QMainWindow):
                 plot_canvas = PlotCanvas(self.get_loaded_files, self.status_bar.showMessage, parent_tab=tab)
                 tab.layout.addWidget(plot_canvas)
                 plot_canvas.ax.set_title(plot_info.get("title", ""))
-                plot_canvas.ax.set_xlabel(plot_info.get("xlabel", ""))
+                plot_canvas.ax.set_xlabel(plot_info.get("xlabel", ""), horizontalalignment='right', x=1.02, labelpad=-10)
                 plot_canvas.ax.set_ylabel(plot_info.get("ylabel", ""))
                 plot_canvas.ax.grid(plot_info.get("grid", False))
                 
