@@ -29,3 +29,38 @@ dyntools from PSSE 35 and 34 is also required
 
 Some .out files generated from PSSE v34 need to be opened with Python 2.7.
 lector_out_legacy.py opens the v34 out a return the read data.
+
+## 🛠 Built With
+PyQt5: GUI framework
+
+matplotlib: plotting library
+
+pandas: CSV data processing
+
+dyntools (from PSSE): to read .out files
+
+json: to store and load templates
+
+os, sys, subprocess: system utilities
+
+
+## 🧪 Supported File Formats
+.out files from PSSE (via dyntools)
+
+.csv files from PSCAD with structured headers (first row = variable names)
+
+
+## 📌 How to Use
+Run PSSE_PSCAD_VIEWER.py
+
+Drag and drop a .out or .csv file in the main window
+
+Select variables to plot in the "+" buton
+
+Customize appearance as needed
+
+Save your template for future reuse
+
+
+## 📝 License
+This project is licensed under the MIT License – see the LICENSE file for details.

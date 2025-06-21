@@ -1,7 +1,7 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, 
-    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar)
+    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox)
 from PyQt5.QtGui import QColor, QIcon
 
 from PyQt5.QtCore import Qt
@@ -338,7 +338,7 @@ class PlotCanvas(QWidget):
         self.canvas.draw()
 
     def edit_title(self):
-        # Open a dialog to edit the title, x-label, y-label, and legend labels/colors
+        # Open a dialog to edit the title, x-label, y-label, and legend labels/colors and multipliers
         current_title = self.ax.get_title()
         current_xlabel = self.ax.get_xlabel()
         current_ylabel = self.ax.get_ylabel()
@@ -346,18 +346,23 @@ class PlotCanvas(QWidget):
         current_labels = [line.get_label() for line in lines]
         current_colors = [line.get_color() for line in lines]
         grid_enabled = self.ax.xaxis._major_tick_kw.get('gridOn', False) and self.ax.yaxis._major_tick_kw.get('gridOn', False)
-
-        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, current_labels, current_colors, grid_enabled, self)
+        current_multipliers = [getattr(line, "_multiplier", 1.0) for line in lines]
+        
+        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, current_labels, current_colors, grid_enabled,self,current_multipliers)
         if dialog.exec_():
-            new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled = dialog.get_data()
+            new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled, multipliers = dialog.get_data()
             self.ax.set_title(new_title)
             self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.02, labelpad=-10)
             self.ax.set_ylabel(new_ylabel)
             self.ax.grid(grid_enabled)
 
-            for line, new_label, new_color in zip(lines, new_labels, new_colors):
+            for line, new_label, new_color, multiplier in zip(lines, new_labels, new_colors, multipliers):
                 line.set_label(new_label)
                 line.set_color(new_color)
+                if not hasattr(line, "_original_ydata"):
+                    line._original_ydata = line.get_ydata()
+                line.set_ydata(line._original_ydata * multiplier)
+                line._multiplier = multiplier  # Guarda el multiplicador actual
 
             self.ax.legend().set_picker(True)
             self.canvas.draw()
@@ -573,7 +578,7 @@ class DualDropWidget(QWidget):
         return files
     
 class EditLabelsDialog(QDialog):
-    def __init__(self, current_title, current_xlabel, current_ylabel, line_labels, line_colors, grid_enabled=False, parent=None):
+    def __init__(self, current_title, current_xlabel, current_ylabel, line_labels, line_colors, grid_enabled=False, parent=None, multipliers=None):
         super().__init__(parent)
         self.setWindowTitle("Editar etiquetas del gráfico")
 
@@ -583,13 +588,40 @@ class EditLabelsDialog(QDialog):
 
         self.legends_list = QListWidget()
         self.color_map = {}
+        self.mult_spinboxes = []
 
-        for label, color in zip(line_labels, line_colors):
+        if multipliers is None:
+            multipliers = [1.0] * len(line_labels)
+
+        # Layout para leyenda + multiplicador
+        legend_mult_layout = QVBoxLayout()
+        for idx, (label, color) in enumerate(zip(line_labels, line_colors)):
+            hbox = QHBoxLayout()
             item = QListWidgetItem(label)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setBackground(QColor(color))
             self.legends_list.addItem(item)
             self.color_map[label] = color
+
+            # Multiplicador
+            mult_spin = QDoubleSpinBox()
+            mult_spin.setDecimals(4)
+            mult_spin.setMinimum(-1e6)
+            mult_spin.setMaximum(1e6)
+            # Aquí se inicializa con el valor actual:
+            mult_spin.setValue(multipliers[idx] if idx < len(multipliers) else 1.0)
+            mult_spin.setToolTip("Multiplicador para la curva")
+            self.mult_spinboxes.append(mult_spin)
+
+            # Widget para leyenda y multiplicador juntos
+            label_widget = QWidget()
+            label_layout = QHBoxLayout()
+            label_layout.setContentsMargins(0, 0, 0, 0)
+            label_layout.addWidget(QLabel(label))
+            label_layout.addWidget(QLabel(" x "))
+            label_layout.addWidget(mult_spin)
+            label_widget.setLayout(label_layout)
+            legend_mult_layout.addWidget(label_widget)
 
         self.legends_list.itemDoubleClicked.connect(self.change_color)
 
@@ -606,7 +638,7 @@ class EditLabelsDialog(QDialog):
         list_widget.setLayout(list_container)
         list_container.addWidget(self.legends_list)
         layout.addRow("Leyendas (doble clic para cambiar color):", list_widget)
-        
+        layout.addRow("Multiplicadores:", legend_mult_layout)
         layout.addRow(self.grid_checkbox)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -625,7 +657,8 @@ class EditLabelsDialog(QDialog):
         ## Used for get the data from the dialog
         labels = [self.legends_list.item(i).text() for i in range(self.legends_list.count())]
         colors = [self.legends_list.item(i).background().color().name() for i in range(self.legends_list.count())]
-        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked()
+        multipliers = [spin.value() for spin in self.mult_spinboxes]
+        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked(), multipliers
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -701,19 +734,7 @@ class MainWindow(QMainWindow):
     def get_loaded_files(self):
         ## Used for get all files loaded in the dual tree
         return self.dual_tree.get_all_files()
-
-    # def add_new_tab(self):
-    #     ## Used for add a new tab with a PlotTab widget
-    #     tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files)
-    #     index = self.tabs.addTab(tab, f"Gráfico {self.tabs.count() + 1}")
-    #     self.tabs.setCurrentIndex(index)
-
-    # def remove_tab(self, tab_widget):
-    #     ## Used for remove the tab
-    #     index = self.tabs.indexOf(tab_widget)
-    #     if index != -1:
-    #         self.tabs.removeTab(index)
-            
+           
     def add_new_tab(self):
         ## Used for add a new tab with a PlotTab widget
         tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files, status_callback=self.status_bar.showMessage)
