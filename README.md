@@ -22,7 +22,7 @@ Python 3.9.13
 
 Install dependencies:
 
-```bash
+
 pip install -r requirements.txt
 
 dyntools from PSSE 35 and 34 is also required
