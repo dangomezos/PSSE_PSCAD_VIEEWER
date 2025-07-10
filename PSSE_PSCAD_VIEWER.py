@@ -1,6 +1,6 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, 
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
     QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox)
 from PyQt5.QtGui import QColor, QIcon
 
@@ -39,7 +39,7 @@ import subprocess
 import json
 
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Simulación de lectura de canales desde archivo .out
 def get_channel_data_from_out(filepath, channel_name):
@@ -120,9 +120,12 @@ def get_time_and_data_from_csv(filepath, column, init_time = 2):
 
 from PyQt5.QtWidgets import QSplitter, QLabel
 class DropTreeWidget(QTreeWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, on_file_deleted=None):
         super().__init__(parent)
+        self.on_file_deleted = on_file_deleted
         self.setAcceptDrops(True)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.open_context_menu)
 
     def dragEnterEvent(self, event):
         # Allow dragging files into the tree
@@ -146,6 +149,18 @@ class DropTreeWidget(QTreeWidget):
                     self.addTopLevelItem(item)
         event.accept()
 
+    def open_context_menu(self, position):
+        item = self.itemAt(position)
+        if item is not None:
+            menu = QMenu()
+            delete_action = menu.addAction("Eliminar archivo")
+            action = menu.exec_(self.viewport().mapToGlobal(position))
+            if action == delete_action:
+                filepath = item.toolTip(0)
+                self.takeTopLevelItem(self.indexOfTopLevelItem(item))
+                if self.on_file_deleted:
+                    self.on_file_deleted(filepath)
+                    
 class PlotCanvas(QWidget):
     def __init__(self, get_file_list_callback, status_callback=None, parent_tab=None):
         super().__init__()
@@ -580,16 +595,16 @@ class PlotTab(QWidget):
                 widget.synchronizing = False
 
 class DualDropWidget(QWidget):
-    def __init__(self):
+    def __init__(self, on_file_deleted=None):
         super().__init__()
         layout = QVBoxLayout(self)
 
         label_psse = QLabel("Archivos .out PSSE")
-        self.tree_psse = DropTreeWidget()
+        self.tree_psse = DropTreeWidget(on_file_deleted=on_file_deleted)
         self.tree_psse.setHeaderLabel("PSSE")
 
         label_pscad = QLabel("Archivos .csv PSCAD")
-        self.tree_pscad = DropTreeWidget()
+        self.tree_pscad = DropTreeWidget(on_file_deleted=on_file_deleted)
         self.tree_pscad.setHeaderLabel("PSCAD")
 
         layout.addWidget(label_psse)
@@ -709,7 +724,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon("icono.ico"))
 
         # Panel izquierdo: archivos divididos
-        self.dual_tree = DualDropWidget()
+        self.dual_tree = DualDropWidget(on_file_deleted=self.remove_series_from_all_plots)
 
         # Zona de pestañas
         self.tabs = QTabWidget()
@@ -928,7 +943,22 @@ class MainWindow(QMainWindow):
                 plot_canvas.ax.legend().set_picker(True)
                 plot_canvas.canvas.draw()
         self.statusBar().showMessage("Plantilla cargada.", 3000)
-
+        
+    def remove_series_from_all_plots(self, filepath):
+        # Remove series from all PlotCanvas widgets in all tabs based on the source file
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if hasattr(tab, 'layout'):
+                for j in range(tab.layout.count()):
+                    widget = tab.layout.itemAt(j).widget()
+                    if isinstance(widget, PlotCanvas):
+                        lines = list(widget.ax.get_lines())
+                        for line in lines:
+                            if getattr(line, 'source_file', None) == filepath:
+                                line.remove()
+                        widget.ax.legend().set_picker(True)
+                        widget.canvas.draw()
+                        
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon("icono.ico"))
