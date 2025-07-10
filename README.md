@@ -22,10 +22,11 @@ Python 3.9.13
 
 Install dependencies:
 
-```bash
+
 pip install -r requirements.txt
 
-dyntools from PSSE 35 and 34 is also required
+dyntools from PSSE 35 and 34 is also required, for this the default instalation of PSSE must be used
+C:\Program Files\PTI\PSSE35\
 
 Some .out files generated from PSSE v34 need to be opened with Python 2.7.
 lector_out_legacy.py opens the v34 out a return the read data.

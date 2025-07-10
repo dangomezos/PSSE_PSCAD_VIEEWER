@@ -10,6 +10,28 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import os
 import sys, os
+
+# possible_paths = [
+#     r"C:\Program Files\PTI\PSSE35\PSSBIN",
+#     r"C:\Program Files (x86)\PTI\PSSE35\PSSBIN",
+#     r'C:\Program Files\PTI\PSSE35\35.6\PSSPY39'
+# ]
+
+# psse_found = False
+
+# for path in possible_paths:
+#     if os.path.exists(path):
+#         sys.path.append(path)
+#         os.environ['PATH'] = path + ";" + os.environ['PATH']
+#         psse_found = True
+#         break
+# if not psse_found:
+#     print("Error: No se encontró la instalación de PSS®E 35 en la ruta predeterminada.")
+#     input("Presione Enter para salir...")
+#     sys.exit()
+
+# sys.path.append(r"C:\Program Files\PTI\PSSE35\35.6\PSSPY39")  # Ruta típica, verifica la tuya
+sys.path.append(r".\PSSPY39")  # 
 import psse35
 import dyntools as dy
 import pandas as pd
@@ -355,6 +377,13 @@ class PlotCanvas(QWidget):
             self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.02, labelpad=-10)
             self.ax.set_ylabel(new_ylabel)
             self.ax.grid(grid_enabled)
+            
+            ## Delete lines that are not in new_labels
+            lines = list(self.ax.get_lines())
+            ## Keep the lines that are in new_labels
+            while len(lines) > len(new_labels):
+                line_to_remove = lines.pop()
+                line_to_remove.remove()
 
             for line, new_label, new_color, multiplier in zip(lines, new_labels, new_colors, multipliers):
                 line.set_label(new_label)
@@ -587,6 +616,8 @@ class EditLabelsDialog(QDialog):
         self.ylabel_edit = QLineEdit(current_ylabel)
 
         self.legends_list = QListWidget()
+        self.btn_delete_series = QPushButton("Eliminar curva seleccionada")
+        self.btn_delete_series.clicked.connect(self.delete_selected_series)
         self.color_map = {}
         self.mult_spinboxes = []
 
@@ -623,6 +654,7 @@ class EditLabelsDialog(QDialog):
             label_widget.setLayout(label_layout)
             legend_mult_layout.addWidget(label_widget)
 
+        
         self.legends_list.itemDoubleClicked.connect(self.change_color)
 
         self.grid_checkbox = QCheckBox("Mostrar grilla")
@@ -632,6 +664,7 @@ class EditLabelsDialog(QDialog):
         layout.addRow("Título del gráfico:", self.title_edit)
         layout.addRow("Etiqueta eje X:", self.xlabel_edit)
         layout.addRow("Etiqueta eje Y:", self.ylabel_edit)
+        layout.addRow(self.btn_delete_series)
 
         list_container = QHBoxLayout()
         list_widget = QWidget()
@@ -659,6 +692,12 @@ class EditLabelsDialog(QDialog):
         colors = [self.legends_list.item(i).background().color().name() for i in range(self.legends_list.count())]
         multipliers = [spin.value() for spin in self.mult_spinboxes]
         return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked(), multipliers
+    def delete_selected_series(self):
+        row = self.legends_list.currentRow()
+        if row >= 0:
+            self.legends_list.takeItem(row)
+            # También elimina el spinbox correspondiente
+            self.mult_spinboxes.pop(row)
 
 class MainWindow(QMainWindow):
     def __init__(self):

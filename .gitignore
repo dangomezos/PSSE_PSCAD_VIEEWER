@@ -36,3 +36,13 @@ dist/
 # Otros
 .DS_Store
 Thumbs.db
+
+## dyntool files
+PSSPY39
+
+py_portable
+
+build
+*.bat
+dist
+*.spec
