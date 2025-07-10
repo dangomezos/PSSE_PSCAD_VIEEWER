@@ -534,8 +534,11 @@ class PlotTab(QWidget):
         self.btn_add_plot.clicked.connect(self.add_plot_canvas)
         self.btn_close = QPushButton("Cerrar pestaña")
         self.btn_close.clicked.connect(self.close_tab)
+        self.btn_set_xlim = QPushButton("Xlim")
+        self.btn_set_xlim.clicked.connect(self.set_xlim_for_all_plots)
         button_layout.addWidget(self.btn_add_plot)
         button_layout.addWidget(self.btn_close)
+        button_layout.addWidget(self.btn_set_xlim)
 
         self.layout.addLayout(button_layout)
 
@@ -594,6 +597,21 @@ class PlotTab(QWidget):
                 widget.canvas.draw()
                 widget.synchronizing = False
 
+    def set_xlim_for_all_plots(self):
+        # Set the x-axis limits for all PlotCanvas widgets in this tab
+        from PyQt5.QtWidgets import QInputDialog
+        min_val, ok1 = QInputDialog.getDouble(self, "Límite X mínimo", "Ingrese el valor mínimo de X:", 0.0)
+        if not ok1:
+            return
+        max_val, ok2 = QInputDialog.getDouble(self, "Límite X máximo", "Ingrese el valor máximo de X:", min_val + 1.0)
+        if not ok2:
+            return
+        for i in range(self.layout.count()):
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, PlotCanvas):
+                widget.ax.set_xlim(min_val, max_val)
+                widget.canvas.draw()
+            
 class DualDropWidget(QWidget):
     def __init__(self, on_file_deleted=None):
         super().__init__()
