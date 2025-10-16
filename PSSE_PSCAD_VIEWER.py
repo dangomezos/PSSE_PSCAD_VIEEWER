@@ -1,3 +1,6 @@
+### App for opening and plotting PSSE .out and PSCAD .csv files
+### Developed by Daniel Gómez - EE - 2025
+
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
@@ -337,35 +340,33 @@ class PlotCanvas(QWidget):
             QMessageBox.warning(self, "Archivo inválido", "El archivo debe ser .out o .csv")
             return
 
-        channel, ok = QInputDialog.getItem(self, "Seleccionar canal", "Canal:", channels, 0, False)
-        if not ok:
+        dialog = ChannelSelectionDialog(channels, parent=self)
+        if not dialog.exec_():
+            return
+        selected_channels = dialog.get_selected_channels()
+        if not selected_channels:
             return
 
-        new_label, ok = QInputDialog.getText(self, "Etiqueta de canal", f"Etiqueta para '{channel}':", text=channel)
-        if not ok:
-            return
+        for channel in selected_channels:
+            if file.endswith(".out"):
+                time, values = get_channel_data_from_out(file, channel)
+                if not time or not values:
+                    QMessageBox.warning(self, "Error", f"No se pudieron extraer datos del canal {channel}.")
+                    continue
+                line = self.ax.plot(time, values, label=channel)[0]
+                line.source_file = file
+                line.channel_name = channel
+                self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
+            else:
+                init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
+                if not ok:
+                    return
+                time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
+                line = self.ax.plot(time, values, label=channel)[0]
+                line.source_file = file
+                line.channel_name = channel
+                self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
 
-        if file.endswith(".out"):
-            time, values = get_channel_data_from_out(file, channel)
-            if not time or not values:
-                QMessageBox.warning(self, "Error", "No se pudieron extraer datos del canal.")
-                return
-            line = self.ax.plot(time, values, label=new_label)[0]
-            line.source_file = file
-            line.channel_name = channel
-            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
-            
-        else:
-            init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
-            if not ok:
-                return
-            time, values = get_time_and_data_from_csv(file, channel, init_time = init_time)
-            line = self.ax.plot(time, values, label=new_label)[0]
-            line.source_file = file
-            line.channel_name = channel
-            self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
-
-        # self.ax.set_title("Channel plot")
         self.ax.legend().set_picker(True)
         self.canvas.mpl_connect("pick_event", self.on_pick_legend)
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
@@ -374,7 +375,7 @@ class PlotCanvas(QWidget):
         self.canvas.mpl_connect("button_release_event", self.on_mouse_release)
         self._last_mouse_pos = None
         self.canvas.draw()
-
+        
     def edit_title(self):
         # Open a dialog to edit the title, x-label, y-label, and legend labels/colors and multipliers
         current_title = self.ax.get_title()
@@ -732,6 +733,33 @@ class EditLabelsDialog(QDialog):
             self.legends_list.takeItem(row)
             # También elimina el spinbox correspondiente
             self.mult_spinboxes.pop(row)
+
+class ChannelSelectionDialog(QDialog):
+    def __init__(self, channels, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Seleccionar canales")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Buscar:"))
+        self.search_box = QLineEdit()
+        layout.addWidget(self.search_box)
+        self.list_widget = QListWidget()
+        self.list_widget.addItems(channels)
+        self.list_widget.setSelectionMode(QListWidget.MultiSelection)
+        layout.addWidget(self.list_widget)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.search_box.textChanged.connect(self.filter_list)
+
+    def filter_list(self, text):
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            item.setHidden(text.lower() not in item.text().lower())
+
+    def get_selected_channels(self):
+        return [item.text() for item in self.list_widget.selectedItems()]
+
 
 class MainWindow(QMainWindow):
     def __init__(self):

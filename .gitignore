@@ -46,3 +46,4 @@ build
 *.bat
 dist
 *.spec
+*.zip
