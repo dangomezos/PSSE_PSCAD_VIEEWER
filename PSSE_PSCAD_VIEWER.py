@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidget
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
     QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox)
 from PyQt5.QtGui import QColor, QIcon
+from PyQt5 import QtGui
 
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -11,27 +12,27 @@ import matplotlib.pyplot as plt
 import os
 import sys, os
 
-# possible_paths = [
-#     r"C:\Program Files\PTI\PSSE35\PSSBIN",
-#     r"C:\Program Files (x86)\PTI\PSSE35\PSSBIN",
-#     r'C:\Program Files\PTI\PSSE35\35.6\PSSPY39'
-# ]
+possible_paths = [
+    r"C:\Program Files\PTI\PSSE35\PSSBIN",
+    r"C:\Program Files (x86)\PTI\PSSE35\PSSBIN",
+    r'C:\Program Files\PTI\PSSE35\35.6\PSSPY39'
+]
 
-# psse_found = False
+psse_found = False
 
-# for path in possible_paths:
-#     if os.path.exists(path):
-#         sys.path.append(path)
-#         os.environ['PATH'] = path + ";" + os.environ['PATH']
-#         psse_found = True
-#         break
-# if not psse_found:
-#     print("Error: No se encontró la instalación de PSS®E 35 en la ruta predeterminada.")
-#     input("Presione Enter para salir...")
-#     sys.exit()
+for path in possible_paths:
+    if os.path.exists(path):
+        sys.path.append(path)
+        os.environ['PATH'] = path + ";" + os.environ['PATH']
+        psse_found = True
+        break
+if not psse_found:
+    print("Error: No se encontró la instalación de PSS®E 35 en la ruta predeterminada.")
+    input("Presione Enter para salir...")
+    sys.exit()
 
 # sys.path.append(r"C:\Program Files\PTI\PSSE35\35.6\PSSPY39")  # Ruta típica, verifica la tuya
-sys.path.append(r".\PSSPY39")  # 
+# sys.path.append(r".\PSSPY39")  # 
 import psse35
 import dyntools as dy
 import pandas as pd
@@ -748,6 +749,8 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(False)
         self.tabs.tabBarDoubleClicked.connect(self.rename_tab)
+        self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
 
         # Botón para agregar nueva pestaña
         self.btn_new_tab = QPushButton("+ Nueva pestaña")
@@ -802,6 +805,20 @@ class MainWindow(QMainWindow):
 
         # Agrega la primera pestaña
         self.add_new_tab()
+
+    def show_tab_context_menu(self, position):
+        index = self.tabs.tabBar().tabAt(position)
+        if index == -1:
+            return
+        menu = QMenu()
+        rename_action = menu.addAction("Renombrar pestaña")
+        close_action = menu.addAction("Eliminar pestaña")
+        action = menu.exec_(self.tabs.tabBar().mapToGlobal(position))
+        if action == rename_action:
+            self.rename_tab(index)
+        elif action == close_action:
+            tab_widget = self.tabs.widget(index)
+            self.remove_tab(tab_widget)
 
     def get_loaded_files(self):
         ## Used for get all files loaded in the dual tree
@@ -979,7 +996,9 @@ class MainWindow(QMainWindow):
                         
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon("icono.ico"))
+    icon = QtGui.QIcon('icono.ico')
+    app.setWindowIcon(icon)
     win = MainWindow()
+    win.setWindowIcon(icon)
     win.show()
     sys.exit(app.exec_())
