@@ -386,10 +386,11 @@ class PlotCanvas(QWidget):
         current_colors = [line.get_color() for line in lines]
         grid_enabled = self.ax.xaxis._major_tick_kw.get('gridOn', False) and self.ax.yaxis._major_tick_kw.get('gridOn', False)
         current_multipliers = [getattr(line, "_multiplier", 1.0) for line in lines]
-        
-        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, current_labels, current_colors, grid_enabled,self,current_multipliers)
+        current_offsets = [getattr(line, "_offset", 0.0) for line in lines]
+
+        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, current_labels, current_colors, grid_enabled, self, current_multipliers, current_offsets)
         if dialog.exec_():
-            new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled, multipliers = dialog.get_data()
+            new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled, multipliers, offsets = dialog.get_data()
             self.ax.set_title(new_title)
             self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.02, labelpad=-10)
             self.ax.set_ylabel(new_ylabel)
@@ -402,13 +403,14 @@ class PlotCanvas(QWidget):
                 line_to_remove = lines.pop()
                 line_to_remove.remove()
 
-            for line, new_label, new_color, multiplier in zip(lines, new_labels, new_colors, multipliers):
+            for line, new_label, new_color, multiplier, offset in zip(lines, new_labels, new_colors, multipliers, offsets):
                 line.set_label(new_label)
                 line.set_color(new_color)
                 if not hasattr(line, "_original_ydata"):
                     line._original_ydata = line.get_ydata()
-                line.set_ydata(line._original_ydata * multiplier)
+                line.set_ydata((line._original_ydata * multiplier) + offset)
                 line._multiplier = multiplier  # Guarda el multiplicador actual
+                line._offset = offset  # Guarda el offset actual
 
             self.ax.legend().set_picker(True)
             self.canvas.draw()
@@ -642,7 +644,7 @@ class DualDropWidget(QWidget):
         return files
     
 class EditLabelsDialog(QDialog):
-    def __init__(self, current_title, current_xlabel, current_ylabel, line_labels, line_colors, grid_enabled=False, parent=None, multipliers=None):
+    def __init__(self, current_title, current_xlabel, current_ylabel, line_labels, line_colors, grid_enabled=False, parent=None, multipliers=None, offsets=None):
         super().__init__(parent)
         self.setWindowTitle("Editar etiquetas del gráfico")
 
@@ -655,9 +657,12 @@ class EditLabelsDialog(QDialog):
         self.btn_delete_series.clicked.connect(self.delete_selected_series)
         self.color_map = {}
         self.mult_spinboxes = []
+        self.offset_spinboxes = []
 
         if multipliers is None:
             multipliers = [1.0] * len(line_labels)
+        if offsets is None:
+            offsets = [0.0] * len(line_labels)
 
         # Layout para leyenda + multiplicador
         legend_mult_layout = QVBoxLayout()
@@ -678,17 +683,26 @@ class EditLabelsDialog(QDialog):
             mult_spin.setValue(multipliers[idx] if idx < len(multipliers) else 1.0)
             mult_spin.setToolTip("Multiplicador para la curva")
             self.mult_spinboxes.append(mult_spin)
-
-            # Widget para leyenda y multiplicador juntos
+            
+            # Offset (suma)
+            offset_spin = QDoubleSpinBox()
+            offset_spin.setValue(offsets[idx] if idx < len(offsets) else 0.0)
+            offset_spin.setDecimals(4)
+            offset_spin.setMinimum(-1e6)
+            offset_spin.setMaximum(1e6)
+            offset_spin.setToolTip("Valor a sumar a la curva")
+            self.offset_spinboxes.append(offset_spin)
+        # Widget para leyenda, multiplicador Y offset juntos
             label_widget = QWidget()
             label_layout = QHBoxLayout()
             label_layout.setContentsMargins(0, 0, 0, 0)
             label_layout.addWidget(QLabel(label))
             label_layout.addWidget(QLabel(" x "))
             label_layout.addWidget(mult_spin)
+            label_layout.addWidget(QLabel(" + "))
+            label_layout.addWidget(offset_spin)
             label_widget.setLayout(label_layout)
-            legend_mult_layout.addWidget(label_widget)
-
+            legend_mult_layout.addWidget(label_widget)  # Agrega el widget al layout
         
         self.legends_list.itemDoubleClicked.connect(self.change_color)
 
@@ -726,7 +740,8 @@ class EditLabelsDialog(QDialog):
         labels = [self.legends_list.item(i).text() for i in range(self.legends_list.count())]
         colors = [self.legends_list.item(i).background().color().name() for i in range(self.legends_list.count())]
         multipliers = [spin.value() for spin in self.mult_spinboxes]
-        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked(), multipliers
+        offsets = [spin.value() for spin in self.offset_spinboxes]
+        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked(), multipliers, offsets
     def delete_selected_series(self):
         row = self.legends_list.currentRow()
         if row >= 0:
