@@ -1,10 +1,10 @@
-### App for opening and plotting PSSE .out and PSCAD .csv files
+### App for opening and plotting PSSE .out files and PSCAD cases (.out/.inf read directly, or legacy pre-merged .csv)
 ### Developed by Daniel Gómez - EE - 2025
 
 # GUI lógica (Python)
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem, 
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
-    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox)
+    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox)
 from PyQt5.QtGui import QColor, QIcon
 from PyQt5 import QtGui
 
@@ -14,6 +14,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import os
 import sys, os
+import re
 
 possible_paths = [
     r"C:\Program Files\PTI\PSSE35\PSSBIN",
@@ -41,6 +42,8 @@ import dyntools as dy
 import pandas as pd
 import subprocess
 import json
+
+from ImPSCADee.PSCADVar import read_pscad_case, resolve_pscad_case
 
 
 __version__ = "1.0.1"
@@ -122,11 +125,75 @@ def get_time_and_data_from_csv(filepath, column, init_time = 2):
         print(f"Error leyendo datos de CSV: {e}")
         return [], []
 
+# --- Lectura directa de casos PSCAD (.inf + .out_NN), sin paso previo a .csv ---
+# Un "caso" PSCAD se identifica por su .inf; el merge de los .out se cachea en
+# memoria y sólo se recalcula si cambió la fecha de modificación de algún archivo.
+_pscad_cache = {}
+
+def _pscad_case_signature(path, file_name):
+    # "Huella" del caso: mtime del .inf y de todos los .out que le pertenecen,
+    # usada para invalidar el caché si el usuario vuelve a correr la simulación.
+    mtimes = []
+    inf_path = os.path.join(path, file_name + '.inf')
+    try:
+        mtimes.append(os.path.getmtime(inf_path))
+    except OSError:
+        pass
+    out_pattern = re.compile(re.escape(file_name) + r'_\d{2,}\.out$', re.IGNORECASE)
+    if os.path.isdir(path):
+        for entry in os.listdir(path):
+            if out_pattern.match(entry):
+                mtimes.append(os.path.getmtime(os.path.join(path, entry)))
+    return tuple(sorted(mtimes)) if mtimes else None
+
+def get_pscad_dataframe(filepath):
+    # Resuelve el caso PSCAD a partir de cualquiera de sus archivos (.inf o .out)
+    # y devuelve el DataFrame fusionado, usando el caché cuando sigue vigente.
+    path, file_name = resolve_pscad_case(filepath)
+    key = (path, file_name)
+    signature = _pscad_case_signature(path, file_name)
+    cached = _pscad_cache.get(key)
+    if cached is not None and cached['signature'] == signature:
+        return cached['df']
+
+    app = QApplication.instance()
+    if app:
+        app.setOverrideCursor(Qt.WaitCursor)
+    try:
+        df = read_pscad_case(path, file_name)
+    finally:
+        if app:
+            app.restoreOverrideCursor()
+
+    _pscad_cache[key] = {'signature': signature, 'df': df}
+    return df
+
+def get_channels_from_pscad(filepath):
+    # Devuelve la lista de canales (columnas, sin 'time') de un caso PSCAD
+    try:
+        df = get_pscad_dataframe(filepath)
+        return list(df.columns[1:])
+    except Exception as e:
+        print(f"Error leyendo caso PSCAD: {e}")
+        return []
+
+def get_time_and_data_from_pscad(filepath, column, init_time = 2):
+    # Igual que get_time_and_data_from_csv, pero a partir del DataFrame cacheado
+    try:
+        df = get_pscad_dataframe(filepath)
+        df = df[df.iloc[:, 0] >= init_time].copy()
+        df.iloc[:, 0] -= init_time
+        return df.iloc[:, 0], df[column]
+    except Exception as e:
+        print(f"Error leyendo datos de caso PSCAD: {e}")
+        return [], []
+
 from PyQt5.QtWidgets import QSplitter, QLabel
 class DropTreeWidget(QTreeWidget):
-    def __init__(self, parent=None, on_file_deleted=None):
+    def __init__(self, parent=None, on_file_deleted=None, mode='psse'):
         super().__init__(parent)
         self.on_file_deleted = on_file_deleted
+        self.mode = mode  # 'psse' -> archivos .out de PSSE ; 'pscad' -> casos PSCAD (.out/.inf) o .csv ya fusionados
         self.setAcceptDrops(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.open_context_menu)
@@ -142,15 +209,44 @@ class DropTreeWidget(QTreeWidget):
         # Allow dragging files over the tree
         event.accept()
 
+    def _add_item(self, tooltip_path, label):
+        # Agrega un item evitando duplicados (mismo archivo/caso ya cargado)
+        for i in range(self.topLevelItemCount()):
+            if self.topLevelItem(i).toolTip(0) == tooltip_path:
+                return
+        item = QTreeWidgetItem([label])
+        item.setToolTip(0, tooltip_path)
+        self.addTopLevelItem(item)
+
+    def _add_pscad_drop(self, filepath):
+        # Soltar cualquier .out o el .inf de un caso PSCAD lo resuelve como un
+        # único item (identificado por su .inf); también se aceptan .csv ya
+        # fusionados por compatibilidad con el flujo anterior.
+        low = filepath.lower()
+        if low.endswith('.csv'):
+            self._add_item(filepath, os.path.basename(filepath))
+            return
+        if low.endswith('.out') or low.endswith('.inf'):
+            try:
+                path, file_name = resolve_pscad_case(filepath)
+            except ValueError:
+                return
+            inf_path = os.path.join(path, file_name + '.inf')
+            if not os.path.isfile(inf_path):
+                QMessageBox.warning(self, "Archivo PSCAD inválido",
+                    f"No se encontró el archivo .inf del caso:\n{file_name}.inf\n\nSe necesita para poder leer los nombres de los canales.")
+                return
+            self._add_item(inf_path, file_name)
+
     def dropEvent(self, event):
         # drop files into the tree
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 filepath = url.toLocalFile()
-                if (filepath.endswith('.out')) or (filepath.endswith('.csv')):
-                    item = QTreeWidgetItem([os.path.basename(filepath)])
-                    item.setToolTip(0, filepath)
-                    self.addTopLevelItem(item)
+                if self.mode == 'pscad':
+                    self._add_pscad_drop(filepath)
+                elif filepath.endswith('.out'):
+                    self._add_item(filepath, os.path.basename(filepath))
         event.accept()
 
     def open_context_menu(self, position):
@@ -278,6 +374,8 @@ class PlotCanvas(QWidget):
                         time, values = get_channel_data_from_out(file, channel)
                     elif file.endswith('.csv'):
                         time, values = get_time_and_data_from_csv(file, channel)
+                    elif file.endswith('.inf'):
+                        time, values = get_time_and_data_from_pscad(file, channel)
                     else:
                         continue
 
@@ -336,8 +434,10 @@ class PlotCanvas(QWidget):
             channels = get_channels_from_out(file)
         elif file.endswith(".csv"):
             channels = get_channels_from_csv(file)
+        elif file.endswith(".inf"):
+            channels = get_channels_from_pscad(file)
         else:
-            QMessageBox.warning(self, "Archivo inválido", "El archivo debe ser .out o .csv")
+            QMessageBox.warning(self, "Archivo inválido", "El archivo debe ser .out, .inf o .csv")
             return
 
         dialog = ChannelSelectionDialog(channels, parent=self)
@@ -361,7 +461,10 @@ class PlotCanvas(QWidget):
                 init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
                 if not ok:
                     return
-                time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
+                if file.endswith(".inf"):
+                    time, values = get_time_and_data_from_pscad(file, channel, init_time=init_time)
+                else:
+                    time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
                 line = self.ax.plot(time, values, label=channel)[0]
                 line.source_file = file
                 line.channel_name = channel
@@ -622,11 +725,11 @@ class DualDropWidget(QWidget):
         layout = QVBoxLayout(self)
 
         label_psse = QLabel("Archivos .out PSSE")
-        self.tree_psse = DropTreeWidget(on_file_deleted=on_file_deleted)
+        self.tree_psse = DropTreeWidget(on_file_deleted=on_file_deleted, mode='psse')
         self.tree_psse.setHeaderLabel("PSSE")
 
-        label_pscad = QLabel("Archivos .csv PSCAD")
-        self.tree_pscad = DropTreeWidget(on_file_deleted=on_file_deleted)
+        label_pscad = QLabel("Casos PSCAD (.out / .inf)")
+        self.tree_pscad = DropTreeWidget(on_file_deleted=on_file_deleted, mode='pscad')
         self.tree_pscad.setHeaderLabel("PSCAD")
 
         layout.addWidget(label_psse)
@@ -974,7 +1077,9 @@ class MainWindow(QMainWindow):
                     self.dual_tree.tree_psse.addTopLevelItem(item)
             for file in template_data.get("files", {}).get("pscad", []):
                 if os.path.isfile(file):
-                    item = QTreeWidgetItem([os.path.basename(file)])
+                    # Los casos PSCAD se guardan como su .inf; se muestra sin extensión
+                    label = os.path.splitext(os.path.basename(file))[0] if file.endswith(".inf") else os.path.basename(file)
+                    item = QTreeWidgetItem([label])
                     item.setToolTip(0, file)
                     self.dual_tree.tree_pscad.addTopLevelItem(item)
         except AttributeError as e:
@@ -1008,6 +1113,8 @@ class MainWindow(QMainWindow):
                             time, values = get_channel_data_from_out(file, channel)
                         elif file.endswith(".csv"):
                             time, values = get_time_and_data_from_csv(file, channel)
+                        elif file.endswith(".inf"):
+                            time, values = get_time_and_data_from_pscad(file, channel)
                         else:
                             continue
                         line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"])[0]
