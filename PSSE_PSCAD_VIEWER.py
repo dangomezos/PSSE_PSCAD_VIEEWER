@@ -4,7 +4,7 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
-    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox)
+    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox, QSizePolicy)
 from PyQt5.QtGui import QColor, QIcon
 from PyQt5 import QtGui
 
@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import sys, os
 import re
@@ -47,6 +48,37 @@ from ImPSCADee.PSCADVar import read_pscad_case, resolve_pscad_case
 
 
 __version__ = "1.0.1"
+
+# Estilo de los botones de acción dentro de cada pestaña (Agregar gráfico, Xlim,
+# Cerrar pestaña). Se aplica por objectName para no afectar a los botones
+# circulares de ícono (+, 🖉, 🔄, ✕, 🗑) de cada gráfico individual.
+TAB_BUTTON_STYLE = """
+QPushButton#tabActionButton {
+    padding: 5px 14px;
+    border: 1px solid #b5b5b5;
+    border-radius: 6px;
+    background-color: #f5f5f5;
+}
+QPushButton#tabActionButton:hover {
+    background-color: #e8e8e8;
+}
+QPushButton#tabActionButton:pressed {
+    background-color: #dcdcdc;
+}
+QPushButton#tabCloseButton {
+    padding: 5px 14px;
+    border: 1px solid #d9a6a6;
+    border-radius: 6px;
+    background-color: #fbeaea;
+    color: #8a1f1f;
+}
+QPushButton#tabCloseButton:hover {
+    background-color: #f6d3d3;
+}
+QPushButton#tabCloseButton:pressed {
+    background-color: #eebcbc;
+}
+"""
 
 # Simulación de lectura de canales desde archivo .out
 def get_channel_data_from_out(filepath, channel_name):
@@ -114,7 +146,7 @@ def get_channels_from_csv(filepath):
         print(f"Error leyendo CSV: {e}")
         return []
 
-def get_time_and_data_from_csv(filepath, column, init_time = 2):
+def get_time_and_data_from_csv(filepath, column, init_time = 0):
     # Read CSV and extract time and data for a specific column
     try:
         df = pd.read_csv(filepath)
@@ -177,7 +209,7 @@ def get_channels_from_pscad(filepath):
         print(f"Error leyendo caso PSCAD: {e}")
         return []
 
-def get_time_and_data_from_pscad(filepath, column, init_time = 2):
+def get_time_and_data_from_pscad(filepath, column, init_time = 0):
     # Igual que get_time_and_data_from_csv, pero a partir del DataFrame cacheado
     try:
         df = get_pscad_dataframe(filepath)
@@ -358,7 +390,10 @@ class PlotCanvas(QWidget):
                 'color': line.get_color(),
                 'visible': line.get_visible(),
                 'source': getattr(line, 'source_file', None),
-                'channel': getattr(line, 'channel_name', None)
+                'channel': getattr(line, 'channel_name', None),
+                'init_time': getattr(line, '_init_time', 0),
+                'multiplier': getattr(line, '_multiplier', 1.0),
+                'offset': getattr(line, '_offset', 0.0)
             })
         xlim = self.ax.get_xlim()
         self.ax.cla()
@@ -370,20 +405,29 @@ class PlotCanvas(QWidget):
 
             if file and channel and os.path.isfile(file):
                 try:
+                    init_time = info.get('init_time', 0)
                     if file.endswith('.out'):
                         time, values = get_channel_data_from_out(file, channel)
                     elif file.endswith('.csv'):
-                        time, values = get_time_and_data_from_csv(file, channel)
+                        time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
                     elif file.endswith('.inf'):
-                        time, values = get_time_and_data_from_pscad(file, channel)
+                        time, values = get_time_and_data_from_pscad(file, channel, init_time=init_time)
                     else:
                         continue
 
                     print(f"Recargando {channel} desde {file}")
+                    multiplier = info.get('multiplier', 1.0)
+                    offset = info.get('offset', 0.0)
                     line = self.ax.plot(time, values, label=info['label'], color=info['color'])[0]
                     line.set_visible(info['visible'])
                     line.source_file = file
                     line.channel_name = channel
+                    line._init_time = init_time
+                    line._original_ydata = line.get_ydata()
+                    if multiplier != 1.0 or offset != 0.0:
+                        line.set_ydata((line._original_ydata * multiplier) + offset)
+                    line._multiplier = multiplier
+                    line._offset = offset
                     self.ax.set_xlim(xlim)
                     self.ax.callbacks.connect("xlim_changed", self.on_xlim_changed)
                 except Exception as e:
@@ -456,6 +500,7 @@ class PlotCanvas(QWidget):
                 line = self.ax.plot(time, values, label=channel)[0]
                 line.source_file = file
                 line.channel_name = channel
+                line._init_time = 0
                 self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
             else:
                 init_time, ok = QInputDialog.getDouble(self, "Tiempo de inicialización", "Ignorar tiempo menor a:", 0.0, 0)
@@ -468,6 +513,7 @@ class PlotCanvas(QWidget):
                 line = self.ax.plot(time, values, label=channel)[0]
                 line.source_file = file
                 line.channel_name = channel
+                line._init_time = init_time
                 self.ax.set_xlabel('(s)', horizontalalignment='right', x=1.02, labelpad=-10)
 
         self.ax.legend().set_picker(True)
@@ -522,6 +568,38 @@ class PlotCanvas(QWidget):
     def reset_zoom(self):
         # Reset the x and y limits to their original state
         self.ax.autoscale()
+        self.canvas.draw()
+
+    def autoscale_y_to_xlim(self):
+        # Recalcula los límites del eje Y en base únicamente a los datos visibles
+        # dentro del rango X actual (el que haya dejado el usuario tras hacer zoom/pan),
+        # sin tocar el rango X.
+        x_min, x_max = self.ax.get_xlim()
+        y_min = y_max = None
+
+        for line in self.ax.get_lines():
+            if not line.get_visible():
+                continue
+            xdata = np.asarray(line.get_xdata())
+            ydata = np.asarray(line.get_ydata())
+            mask = (xdata >= x_min) & (xdata <= x_max)
+            if not mask.any():
+                continue
+            visible_y = ydata[mask]
+            cur_min = np.nanmin(visible_y)
+            cur_max = np.nanmax(visible_y)
+            y_min = cur_min if y_min is None else min(y_min, cur_min)
+            y_max = cur_max if y_max is None else max(y_max, cur_max)
+
+        if y_min is None or y_max is None:
+            return
+
+        if y_min == y_max:
+            pad = abs(y_min) * 0.1 if y_min != 0 else 1.0
+        else:
+            pad = (y_max - y_min) * 0.05  # 5% de margen visual
+
+        self.ax.set_ylim(y_min - pad, y_max + pad)
         self.canvas.draw()
 
     def clear_plot(self):
@@ -637,15 +715,37 @@ class PlotTab(QWidget):
         self.layout.setSpacing(0)
         self.layout.setContentsMargins(10, 2, 10, 2)
         button_layout = QHBoxLayout()
-        self.btn_add_plot = QPushButton("Agregar gráfico")
+        button_layout.setSpacing(8)
+
+        self.btn_add_plot = QPushButton("➕ Agregar gráfico")
+        self.btn_add_plot.setObjectName("tabActionButton")
+        self.btn_add_plot.setToolTip("Agregar un nuevo gráfico a esta pestaña")
         self.btn_add_plot.clicked.connect(self.add_plot_canvas)
-        self.btn_close = QPushButton("Cerrar pestaña")
-        self.btn_close.clicked.connect(self.close_tab)
-        self.btn_set_xlim = QPushButton("Xlim")
+
+        self.btn_set_xlim = QPushButton("📏 Límites X")
+        self.btn_set_xlim.setObjectName("tabActionButton")
+        self.btn_set_xlim.setToolTip("Definir el rango del eje X para todos los gráficos de esta pestaña")
         self.btn_set_xlim.clicked.connect(self.set_xlim_for_all_plots)
+
+        self.btn_autoscale_y = QPushButton("↕ Autoescalar Y")
+        self.btn_autoscale_y.setObjectName("tabActionButton")
+        self.btn_autoscale_y.setToolTip("Recalcular el eje Y de todos los gráficos de esta pestaña según su rango X visible")
+        self.btn_autoscale_y.clicked.connect(self.autoscale_y_all_plots)
+
+        self.btn_close = QPushButton("🗑 Cerrar pestaña")
+        self.btn_close.setObjectName("tabCloseButton")
+        self.btn_close.setToolTip("Eliminar esta pestaña")
+        self.btn_close.clicked.connect(self.close_tab)
+
+        for btn in (self.btn_add_plot, self.btn_set_xlim, self.btn_autoscale_y, self.btn_close):
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
         button_layout.addWidget(self.btn_add_plot)
-        button_layout.addWidget(self.btn_close)
         button_layout.addWidget(self.btn_set_xlim)
+        button_layout.addWidget(self.btn_autoscale_y)
+        button_layout.addStretch()
+        button_layout.addWidget(self.btn_close)
 
         self.layout.addLayout(button_layout)
 
@@ -718,7 +818,15 @@ class PlotTab(QWidget):
             if isinstance(widget, PlotCanvas):
                 widget.ax.set_xlim(min_val, max_val)
                 widget.canvas.draw()
-            
+
+    def autoscale_y_all_plots(self):
+        # Recalcula el eje Y de todos los gráficos de la pestaña según el rango X
+        # que tenga cada uno en ese momento (zoom/pan/límites ya aplicados)
+        for i in range(self.layout.count()):
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, PlotCanvas):
+                widget.autoscale_y_to_xlim()
+
 class DualDropWidget(QWidget):
     def __init__(self, on_file_deleted=None):
         super().__init__()
@@ -900,43 +1008,42 @@ class MainWindow(QMainWindow):
 
         # Botón para agregar nueva pestaña
         self.btn_new_tab = QPushButton("+ Nueva pestaña")
-        self.btn_new_tab.setMinimumWidth(180)      
         self.btn_new_tab.clicked.connect(self.add_new_tab)
-        
+
         self.btn_reload = QPushButton("↻ Recargar archivos")
-        self.btn_reload.setMinimumWidth(180)
         # self.btn_reload.setEnabled(False)
         self.btn_reload.clicked.connect(self.reload_files)
-        
+
         self.btn_save_template = QPushButton("💾 Guardar plantilla")
-        self.btn_save_template.setMaximumWidth(140)
         self.btn_save_template.clicked.connect(self.save_template)
         self.btn_load_template = QPushButton("📂 Cargar plantilla")
-        self.btn_load_template.setMaximumWidth(140)
         self.btn_load_template.clicked.connect(self.load_template)
-       
+
         self.btn_export = QPushButton("🖼 Exportar gráficos")
-        self.btn_export.setMaximumWidth(140)
         self.btn_export.clicked.connect(self.export_all_plots)
-        
-        
+
+        # Todos los botones de la barra superior se dimensionan según su propio
+        # texto (sizeHint) y no crecen al agrandar la ventana; el espacio extra
+        # lo absorbe el "stretch" del layout, no los botones.
+        for btn in (self.btn_new_tab, self.btn_reload, self.btn_export, self.btn_save_template, self.btn_load_template):
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
         btn_layout = QHBoxLayout()
-        # btn_layout.addStretch()
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(10)
         btn_layout.addWidget(self.btn_new_tab)
         btn_layout.addWidget(self.btn_reload)
-        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_export)
+        btn_layout.addWidget(self.btn_save_template)
+        btn_layout.addWidget(self.btn_load_template)
+
         top_layout = QVBoxLayout()
-        # top_layout.addWidget(self.btn_new_tab)
         top_layout.addLayout(btn_layout)
         top_layout.addWidget(self.tabs)
-        btn_layout.addWidget(self.btn_export)
 
         tabs_widget = QWidget()
         tabs_widget.setLayout(top_layout)
-        btn_layout.addWidget(self.btn_save_template)
-        btn_layout.addWidget(self.btn_load_template)
         
         # Diseño principal
         central = QWidget()
@@ -1038,6 +1145,9 @@ class MainWindow(QMainWindow):
                             "label": line.get_label(),
                             "color": line.get_color(),
                             "visible": line.get_visible(),
+                            "init_time": getattr(line, "_init_time", 0),
+                            "multiplier": getattr(line, "_multiplier", 1.0),
+                            "offset": getattr(line, "_offset", 0.0),
                         })
                     tab_data["plots"].append(plot_info)
             template.append(tab_data)
@@ -1109,18 +1219,27 @@ class MainWindow(QMainWindow):
                     file = line_info["file"]
                     channel = line_info["channel"]
                     if file and channel and os.path.isfile(file):
+                        init_time = line_info.get("init_time", 0)
                         if file.endswith(".out"):
                             time, values = get_channel_data_from_out(file, channel)
                         elif file.endswith(".csv"):
-                            time, values = get_time_and_data_from_csv(file, channel)
+                            time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
                         elif file.endswith(".inf"):
-                            time, values = get_time_and_data_from_pscad(file, channel)
+                            time, values = get_time_and_data_from_pscad(file, channel, init_time=init_time)
                         else:
                             continue
+                        multiplier = line_info.get("multiplier", 1.0)
+                        offset = line_info.get("offset", 0.0)
                         line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"])[0]
                         line.set_visible(line_info.get("visible", True))
                         line.source_file = file
                         line.channel_name = channel
+                        line._init_time = init_time
+                        line._original_ydata = line.get_ydata()
+                        if multiplier != 1.0 or offset != 0.0:
+                            line.set_ydata((line._original_ydata * multiplier) + offset)
+                        line._multiplier = multiplier
+                        line._offset = offset
                 if "xlim" in plot_info:
                     plot_canvas.ax.set_xlim(plot_info["xlim"])
                 if "ylim" in plot_info:
@@ -1146,6 +1265,7 @@ class MainWindow(QMainWindow):
                         
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    app.setStyleSheet(TAB_BUTTON_STYLE)
     icon = QtGui.QIcon('icono.ico')
     app.setWindowIcon(icon)
     win = MainWindow()
