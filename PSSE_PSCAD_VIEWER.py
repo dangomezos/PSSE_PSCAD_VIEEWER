@@ -271,15 +271,32 @@ class DropTreeWidget(QTreeWidget):
                 return
             self._add_item(inf_path, file_name)
 
+    def add_files(self, filepaths):
+        # Punto de entrada común para cargar archivos, sea por drag&drop o por
+        # el diálogo "📂 Agregar archivos" del explorador nativo.
+        for filepath in filepaths:
+            if self.mode == 'pscad':
+                self._add_pscad_drop(filepath)
+            elif filepath.endswith('.out'):
+                self._add_item(filepath, os.path.basename(filepath))
+
+    def browse_files(self):
+        # Abre el explorador de archivos nativo como alternativa a arrastrar y soltar
+        if self.mode == 'pscad':
+            caption = "Seleccionar archivos PSCAD (.out, .inf o .csv ya fusionado)"
+            file_filter = "Archivos PSCAD (*.out *.inf *.csv);;Archivos .out/.inf (*.out *.inf);;CSV fusionado (*.csv);;Todos los archivos (*.*)"
+        else:
+            caption = "Seleccionar archivos .out de PSSE"
+            file_filter = "Archivos PSSE (*.out);;Todos los archivos (*.*)"
+
+        files, _ = QFileDialog.getOpenFileNames(self, caption, "", file_filter)
+        if files:
+            self.add_files(files)
+
     def dropEvent(self, event):
         # drop files into the tree
         if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                filepath = url.toLocalFile()
-                if self.mode == 'pscad':
-                    self._add_pscad_drop(filepath)
-                elif filepath.endswith('.out'):
-                    self._add_item(filepath, os.path.basename(filepath))
+            self.add_files([url.toLocalFile() for url in event.mimeData().urls()])
         event.accept()
 
     def open_context_menu(self, position):
@@ -831,18 +848,29 @@ class DualDropWidget(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
 
-        label_psse = QLabel("Archivos .out PSSE")
         self.tree_psse = DropTreeWidget(on_file_deleted=on_file_deleted, mode='psse')
         self.tree_psse.setHeaderLabel("PSSE")
 
-        label_pscad = QLabel("Casos PSCAD (.out / .inf)")
         self.tree_pscad = DropTreeWidget(on_file_deleted=on_file_deleted, mode='pscad')
         self.tree_pscad.setHeaderLabel("PSCAD")
 
-        layout.addWidget(label_psse)
+        layout.addLayout(self._make_section_header("Archivos .out PSSE", self.tree_psse))
         layout.addWidget(self.tree_psse)
-        layout.addWidget(label_pscad)
+        layout.addLayout(self._make_section_header("Casos PSCAD (.out / .inf)", self.tree_pscad))
         layout.addWidget(self.tree_pscad)
+
+    def _make_section_header(self, text, tree):
+        # Etiqueta + botón para elegir archivos con el explorador, como alternativa a arrastrarlos
+        header = QHBoxLayout()
+        header.addWidget(QLabel(text))
+        header.addStretch()
+        btn_browse = QPushButton("📂")
+        btn_browse.setFixedSize(25, 22)
+        btn_browse.setToolTip("Agregar archivos desde el explorador")
+        btn_browse.setCursor(Qt.PointingHandCursor)
+        btn_browse.clicked.connect(tree.browse_files)
+        header.addWidget(btn_browse)
+        return header
 
     def get_all_files(self):
         ## Used for get all files loaded in the dual tree
@@ -1279,6 +1307,17 @@ class MainWindow(QMainWindow):
                         widget.canvas.draw()
                         
 if __name__ == '__main__':
+    if sys.platform == 'win32':
+        # Sin esto, Windows agrupa el proceso bajo el AppUserModelID por defecto
+        # de python.exe y la barra de tareas muestra su ícono genérico en vez del
+        # nuestro, aunque el ícono de la ventana (esquina superior izquierda) esté
+        # bien seteado. Debe llamarse antes de crear la QApplication.
+        import ctypes
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('EE.PSSE_PSCAD_Viewer.1')
+        except Exception as e:
+            print(f"[WARN] No se pudo fijar el AppUserModelID: {e}")
+
     app = QApplication(sys.argv)
     app.setStyleSheet(TAB_BUTTON_STYLE)
     icon = QtGui.QIcon('icono.ico')
