@@ -564,6 +564,8 @@ class PlotCanvas(QWidget):
             lines_info.append({
                 'label': line.get_label(),
                 'color': line.get_color(),
+                'linewidth': line.get_linewidth(),
+                'linestyle': line.get_linestyle(),
                 'visible': line.get_visible(),
                 'source': getattr(line, 'source_file', None),
                 'channel': getattr(line, 'channel_name', None),
@@ -594,7 +596,8 @@ class PlotCanvas(QWidget):
                     print(f"Recargando {channel} desde {file}")
                     multiplier = info.get('multiplier', 1.0)
                     offset = info.get('offset', 0.0)
-                    line = self.ax.plot(time, values, label=info['label'], color=info['color'])[0]
+                    line = self.ax.plot(time, values, label=info['label'], color=info['color'],
+                                        linewidth=info.get('linewidth', 1.5), linestyle=info.get('linestyle', '-'))[0]
                     line.set_visible(info['visible'])
                     line.source_file = file
                     line.channel_name = channel
@@ -728,12 +731,15 @@ class PlotCanvas(QWidget):
                 if id(line) not in kept_lines:
                     line.remove()
 
-            # Aplica nombre/color/multiplicador/offset a cada curva por referencia directa
-            # (no por posición), así una eliminación en el medio de la lista no desalinea nada
+            # Aplica nombre/color/grosor/estilo/multiplicador/offset a cada curva por
+            # referencia directa (no por posición), así una eliminación en el medio de
+            # la lista no desalinea nada
             for row in rows:
                 line = row["line"]
                 line.set_label(row["label"])
                 line.set_color(row["color"])
+                line.set_linewidth(row["linewidth"])
+                line.set_linestyle(row["linestyle"])
                 if not hasattr(line, "_original_ydata"):
                     line._original_ydata = line.get_ydata()
                 line.set_ydata((line._original_ydata * row["multiplier"]) + row["offset"])
@@ -1111,13 +1117,23 @@ class EditLabelsDialog(QDialog):
     COL_ORIGINAL = 0   # Nombre original del canal (no editable)
     COL_COLOR = 1      # Selector de color
     COL_LABEL = 2      # Nombre que el usuario le da a la leyenda
-    COL_MULT = 3       # Multiplicador
-    COL_OFFSET = 4     # Offset (suma)
+    COL_WIDTH = 3      # Grosor de la línea
+    COL_STYLE = 4      # Estilo de la línea (sólido, punteado, etc.)
+    COL_MULT = 5       # Multiplicador
+    COL_OFFSET = 6     # Offset (suma)
+
+    # (texto a mostrar, código de linestyle de matplotlib)
+    LINESTYLE_OPTIONS = [
+        ("Sólido", "-"),
+        ("Punteado", ":"),
+        ("Guiones", "--"),
+        ("Guión-punto", "-."),
+    ]
 
     def __init__(self, current_title, current_xlabel, current_ylabel, lines, grid_enabled=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Editar etiquetas del gráfico")
-        self.resize(720, 420)
+        self.resize(860, 420)
 
         self.title_edit = QLineEdit(current_title)
         self.xlabel_edit = QLineEdit(current_xlabel if current_xlabel else "(s)")
@@ -1126,8 +1142,8 @@ class EditLabelsDialog(QDialog):
         self.btn_delete_series = QPushButton("🗑 Eliminar curva(s) seleccionada(s)")
         self.btn_delete_series.clicked.connect(self.delete_selected_series)
 
-        self.table = QTableWidget(len(lines), 5)
-        self.table.setHorizontalHeaderLabels(["Canal original", "Color", "Nombre en la leyenda", "Multiplicador", "Offset"])
+        self.table = QTableWidget(len(lines), 7)
+        self.table.setHorizontalHeaderLabels(["Canal original", "Color", "Nombre en la leyenda", "Grosor", "Estilo", "Multiplicador", "Offset"])
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -1137,6 +1153,8 @@ class EditLabelsDialog(QDialog):
         header.setSectionResizeMode(self.COL_ORIGINAL, QHeaderView.Stretch)
         header.setSectionResizeMode(self.COL_COLOR, QHeaderView.Fixed)
         header.setSectionResizeMode(self.COL_LABEL, QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_WIDTH, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_STYLE, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(self.COL_MULT, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(self.COL_OFFSET, QHeaderView.ResizeToContents)
         self.table.setColumnWidth(self.COL_COLOR, 60)
@@ -1144,6 +1162,7 @@ class EditLabelsDialog(QDialog):
         for row, line in enumerate(lines):
             channel_original = getattr(line, "channel_name", None) or line.get_label()
             self._populate_row(row, line, channel_original, line.get_label(), line.get_color(),
+                                line.get_linewidth(), line.get_linestyle(),
                                 getattr(line, "_multiplier", 1.0), getattr(line, "_offset", 0.0))
 
         self.grid_checkbox = QCheckBox("Mostrar grilla")
@@ -1162,7 +1181,7 @@ class EditLabelsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _populate_row(self, row, line, channel_original, label, color, multiplier, offset):
+    def _populate_row(self, row, line, channel_original, label, color, linewidth, linestyle, multiplier, offset):
         # Columna "Canal original": informativa, no editable
         item_original = QTableWidgetItem(channel_original)
         item_original.setFlags(item_original.flags() & ~Qt.ItemIsEditable)
@@ -1180,6 +1199,10 @@ class EditLabelsDialog(QDialog):
         item_label = QTableWidgetItem(label)
         item_label.setToolTip("Nombre que se mostrará en la leyenda del gráfico")
         self.table.setItem(row, self.COL_LABEL, item_label)
+
+        # Columnas Grosor / Estilo de línea
+        self.table.setCellWidget(row, self.COL_WIDTH, self._make_linewidth_spinbox(linewidth))
+        self.table.setCellWidget(row, self.COL_STYLE, self._make_linestyle_combo(linestyle))
 
         # Columnas Multiplicador / Offset
         self.table.setCellWidget(row, self.COL_MULT, self._make_spinbox(multiplier, "Multiplicador para la curva"))
@@ -1210,6 +1233,25 @@ class EditLabelsDialog(QDialog):
         spin.setToolTip(tooltip)
         return spin
 
+    def _make_linewidth_spinbox(self, value):
+        spin = QDoubleSpinBox()
+        spin.setDecimals(1)
+        spin.setMinimum(0.5)
+        spin.setMaximum(10.0)
+        spin.setSingleStep(0.5)
+        spin.setValue(value if value else 1.5)
+        spin.setToolTip("Grosor de la línea")
+        return spin
+
+    def _make_linestyle_combo(self, current_style):
+        combo = QComboBox()
+        for text, code in self.LINESTYLE_OPTIONS:
+            combo.addItem(text, code)
+        idx = combo.findData(current_style)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.setToolTip("Estilo de línea")
+        return combo
+
     def get_data(self):
         ## Used for get the data from the dialog: una entrada por curva que sigue en la tabla,
         ## identificada por la referencia real a la línea (robusto ante eliminaciones intermedias).
@@ -1218,9 +1260,12 @@ class EditLabelsDialog(QDialog):
             line = self.table.item(row, self.COL_ORIGINAL).data(Qt.UserRole)
             label = self.table.item(row, self.COL_LABEL).text()
             color = self.table.cellWidget(row, self.COL_COLOR)._color.name()
+            linewidth = self.table.cellWidget(row, self.COL_WIDTH).value()
+            linestyle = self.table.cellWidget(row, self.COL_STYLE).currentData()
             multiplier = self.table.cellWidget(row, self.COL_MULT).value()
             offset = self.table.cellWidget(row, self.COL_OFFSET).value()
-            rows.append({"line": line, "label": label, "color": color, "multiplier": multiplier, "offset": offset})
+            rows.append({"line": line, "label": label, "color": color, "linewidth": linewidth,
+                         "linestyle": linestyle, "multiplier": multiplier, "offset": offset})
         return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), self.grid_checkbox.isChecked(), rows
 
     def delete_selected_series(self):
@@ -1540,6 +1585,8 @@ class MainWindow(QMainWindow):
                             "channel": getattr(line, "channel_name", None),
                             "label": line.get_label(),
                             "color": line.get_color(),
+                            "linewidth": line.get_linewidth(),
+                            "linestyle": line.get_linestyle(),
                             "visible": line.get_visible(),
                             "init_time": getattr(line, "_init_time", 0),
                             "multiplier": getattr(line, "_multiplier", 1.0),
@@ -1628,7 +1675,9 @@ class MainWindow(QMainWindow):
                             continue
                         multiplier = line_info.get("multiplier", 1.0)
                         offset = line_info.get("offset", 0.0)
-                        line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"])[0]
+                        line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"],
+                                                    linewidth=line_info.get("linewidth", 1.5),
+                                                    linestyle=line_info.get("linestyle", "-"))[0]
                         line.set_visible(line_info.get("visible", True))
                         line.source_file = file
                         line.channel_name = channel
