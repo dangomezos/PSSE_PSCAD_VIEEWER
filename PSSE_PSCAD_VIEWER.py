@@ -13,6 +13,20 @@ from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+plt.rcParams.update({
+    # Estética de gráficos consistente con el tema "claro profesional" de la app
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "axes.edgecolor": "#4b5563",
+    "axes.linewidth": 0.8,
+    "axes.grid": True,
+    "grid.color": "#d7dbe0",
+    "grid.linewidth": 0.7,
+    "font.size": 9,
+    "legend.frameon": True,
+    "legend.framealpha": 0.9,
+    "legend.edgecolor": "#d7dbe0",
+})
 import numpy as np
 import os
 import sys, os
@@ -49,36 +63,179 @@ from ImPSCADee.PSCADVar import read_pscad_case, resolve_pscad_case
 
 
 __version__ = "1.0.1"
+__app_name__ = "PSSE / PSCAD ViEEwer"
 
-# Estilo de los botones de acción dentro de cada pestaña (Agregar gráfico, Xlim,
-# Cerrar pestaña). Se aplica por objectName para no afectar a los botones
-# circulares de ícono (+, 🖉, 🔄, ✕, 🗑) de cada gráfico individual.
-TAB_BUTTON_STYLE = """
-QPushButton#tabActionButton {
+# ---------------------------------------------------------------------------
+# Tema visual de la aplicación: "claro profesional", en la línea de PSS/E y
+# PSCAD (fondo blanco/gris muy claro, acentos en azul corporativo). Se aplica
+# una sola vez a nivel de QApplication; los estilos con #objectName (botones
+# de pestaña, cierre) se apoyan sobre esta misma paleta.
+# ---------------------------------------------------------------------------
+_BG = "#f5f6f8"          # fondo general de ventanas/diálogos
+_PANEL = "#ffffff"       # fondo de paneles/tarjetas (árboles, tablas, tabs)
+_ALT_ROW = "#f2f5fa"     # filas alternadas en árboles/tablas
+_BORDER = "#d4d9e0"      # borde estándar de paneles y controles
+_BORDER_STRONG = "#b7bfc9"
+_TEXT = "#20242c"        # texto principal
+_TEXT_MUTED = "#5b6472"  # texto secundario
+_ACCENT = "#2f6fed"      # azul corporativo: selección, foco, tabs activas
+_ACCENT_HOVER = "#eaf0fe"
+_ACCENT_PRESSED = "#d6e2fc"
+_DANGER_BG = "#fbeaea"
+_DANGER_BORDER = "#d9a6a6"
+_DANGER_TEXT = "#8a1f1f"
+_DANGER_HOVER = "#f6d3d3"
+_DANGER_PRESSED = "#eebcbc"
+
+APP_STYLE = f"""
+QMainWindow, QDialog {{
+    background-color: {_BG};
+    color: {_TEXT};
+}}
+QWidget {{
+    color: {_TEXT};
+    font-size: 9.5pt;
+}}
+QLabel {{
+    background: transparent;
+}}
+
+/* --- Botones: estilo base compartido por toda la app --- */
+QPushButton {{
+    background-color: {_PANEL};
+    border: 1px solid {_BORDER_STRONG};
+    border-radius: 5px;
+    padding: 4px 10px;
+    color: {_TEXT};
+}}
+QPushButton:hover {{
+    background-color: {_ACCENT_HOVER};
+    border-color: {_ACCENT};
+}}
+QPushButton:pressed {{
+    background-color: {_ACCENT_PRESSED};
+}}
+QPushButton:disabled {{
+    color: #a7adb6;
+    background-color: #f0f1f3;
+    border-color: {_BORDER};
+}}
+
+QPushButton#tabActionButton {{
     padding: 5px 14px;
-    border: 1px solid #b5b5b5;
-    border-radius: 6px;
-    background-color: #f5f5f5;
-}
-QPushButton#tabActionButton:hover {
-    background-color: #e8e8e8;
-}
-QPushButton#tabActionButton:pressed {
-    background-color: #dcdcdc;
-}
-QPushButton#tabCloseButton {
+    font-weight: 500;
+}}
+QPushButton#tabCloseButton {{
     padding: 5px 14px;
-    border: 1px solid #d9a6a6;
+    border: 1px solid {_DANGER_BORDER};
+    background-color: {_DANGER_BG};
+    color: {_DANGER_TEXT};
+}}
+QPushButton#tabCloseButton:hover {{
+    background-color: {_DANGER_HOVER};
+    border-color: {_DANGER_BORDER};
+}}
+QPushButton#tabCloseButton:pressed {{
+    background-color: {_DANGER_PRESSED};
+}}
+
+/* --- Campos de entrada --- */
+QLineEdit, QDoubleSpinBox, QComboBox {{
+    background-color: {_PANEL};
+    border: 1px solid {_BORDER_STRONG};
+    border-radius: 4px;
+    padding: 3px 6px;
+    selection-background-color: {_ACCENT};
+    selection-color: white;
+}}
+QLineEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+    border: 1px solid {_ACCENT};
+}}
+
+/* --- Árboles / listas / tablas --- */
+QTreeWidget, QListWidget, QTableWidget {{
+    background-color: {_PANEL};
+    alternate-background-color: {_ALT_ROW};
+    border: 1px solid {_BORDER};
     border-radius: 6px;
-    background-color: #fbeaea;
-    color: #8a1f1f;
-}
-QPushButton#tabCloseButton:hover {
-    background-color: #f6d3d3;
-}
-QPushButton#tabCloseButton:pressed {
-    background-color: #eebcbc;
-}
+    gridline-color: {_BORDER};
+    selection-background-color: {_ACCENT};
+    selection-color: white;
+}}
+QHeaderView::section {{
+    background-color: #eef1f6;
+    color: {_TEXT_MUTED};
+    border: none;
+    border-bottom: 1px solid {_BORDER};
+    padding: 4px 6px;
+    font-weight: 600;
+}}
+
+/* --- Agrupadores (secciones PSSE/PSCAD, grupos en diálogos) --- */
+QGroupBox {{
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 10px;
+    font-weight: 600;
+    color: {_TEXT_MUTED};
+    background-color: {_PANEL};
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+}}
+
+/* --- Pestañas de gráficos --- */
+QTabWidget::pane {{
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    top: -1px;
+    background-color: {_PANEL};
+}}
+QTabBar::tab {{
+    background-color: #eef1f6;
+    border: 1px solid {_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 6px 16px;
+    margin-right: 2px;
+    color: {_TEXT_MUTED};
+}}
+QTabBar::tab:selected {{
+    background-color: {_PANEL};
+    color: {_TEXT};
+    font-weight: 600;
+}}
+QTabBar::tab:hover {{
+    background-color: white;
+}}
+
+/* --- Barra de estado --- */
+QStatusBar {{
+    background-color: #eef1f6;
+    border-top: 1px solid {_BORDER};
+    color: {_TEXT_MUTED};
+}}
+
+/* --- Menús contextuales --- */
+QMenu {{
+    background-color: {_PANEL};
+    border: 1px solid {_BORDER};
+}}
+QMenu::item {{
+    padding: 6px 22px;
+}}
+QMenu::item:selected {{
+    background-color: {_ACCENT};
+    color: white;
+}}
+
+QCheckBox {{
+    spacing: 6px;
+}}
 """
 
 # Simulación de lectura de canales desde archivo .out
@@ -735,8 +892,8 @@ class PlotTab(QWidget):
         self.status_callback = status_callback
         self.synchronizing = False
         self.layout = QVBoxLayout(self)
-        self.layout.setSpacing(0)
-        self.layout.setContentsMargins(10, 2, 10, 2)
+        self.layout.setSpacing(6)
+        self.layout.setContentsMargins(8, 8, 8, 8)
         button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
 
@@ -854,30 +1011,37 @@ class DualDropWidget(QWidget):
     def __init__(self, on_file_deleted=None):
         super().__init__()
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
         self.tree_psse = DropTreeWidget(on_file_deleted=on_file_deleted, mode='psse')
-        self.tree_psse.setHeaderLabel("PSSE")
+        self.tree_psse.setHeaderHidden(True)
 
         self.tree_pscad = DropTreeWidget(on_file_deleted=on_file_deleted, mode='pscad')
-        self.tree_pscad.setHeaderLabel("PSCAD")
+        self.tree_pscad.setHeaderHidden(True)
 
-        layout.addLayout(self._make_section_header("Archivos .out PSSE", self.tree_psse))
-        layout.addWidget(self.tree_psse)
-        layout.addLayout(self._make_section_header("Casos PSCAD (.out / .inf)", self.tree_pscad))
-        layout.addWidget(self.tree_pscad)
+        layout.addWidget(self._make_section("Archivos .out PSSE", self.tree_psse))
+        layout.addWidget(self._make_section("Casos PSCAD (.out / .inf)", self.tree_pscad))
 
-    def _make_section_header(self, text, tree):
-        # Etiqueta + botón para elegir archivos con el explorador, como alternativa a arrastrarlos
+    def _make_section(self, title, tree):
+        # Panel con borde ("tarjeta") por tipo de archivo: título + botón para
+        # elegirlos desde el explorador (alternativa a arrastrarlos) + árbol
+        tree.setAlternatingRowColors(True)
+
+        group = QGroupBox(title)
+        group_layout = QVBoxLayout(group)
+
         header = QHBoxLayout()
-        header.addWidget(QLabel(text))
         header.addStretch()
-        btn_browse = QPushButton("📂")
-        btn_browse.setFixedSize(25, 22)
+        btn_browse = QPushButton("📂 Agregar…")
         btn_browse.setToolTip("Agregar archivos desde el explorador")
         btn_browse.setCursor(Qt.PointingHandCursor)
         btn_browse.clicked.connect(tree.browse_files)
         header.addWidget(btn_browse)
-        return header
+
+        group_layout.addLayout(header)
+        group_layout.addWidget(tree)
+        return group
 
     def get_all_files(self):
         ## Used for get all files loaded in the dual tree
@@ -921,6 +1085,7 @@ class EditLabelsDialog(QDialog):
         self.table = QTableWidget(len(lines), 5)
         self.table.setHorizontalHeaderLabels(["Canal original", "Color", "Nombre en la leyenda", "Multiplicador", "Offset"])
         self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
@@ -1056,6 +1221,7 @@ class FileSelectionDialog(QDialog):
         group = QGroupBox(title)
         group_layout = QVBoxLayout(group)
         list_widget = QListWidget()
+        list_widget.setAlternatingRowColors(True)
         for label, path in files:
             item = QListWidgetItem(label)
             item.setToolTip(path)
@@ -1090,6 +1256,7 @@ class ChannelSelectionDialog(QDialog):
         self.search_box = QLineEdit()
         layout.addWidget(self.search_box)
         self.list_widget = QListWidget()
+        self.list_widget.setAlternatingRowColors(True)
         self.list_widget.addItems(channels)
         self.list_widget.setSelectionMode(QListWidget.MultiSelection)
         layout.addWidget(self.list_widget)
@@ -1108,17 +1275,52 @@ class ChannelSelectionDialog(QDialog):
         return [item.text() for item in self.list_widget.selectedItems()]
 
 
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Acerca de")
+        self.setFixedWidth(340)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+
+        title = QLabel(f"<b>{__app_name__}</b>")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 13pt;")
+
+        version = QLabel(f"Versión {__version__}")
+        version.setAlignment(Qt.AlignCenter)
+        version.setStyleSheet(f"color: {_TEXT_MUTED};")
+
+        desc = QLabel("Visualizador de archivos .out de PSS®E y de casos PSCAD "
+                      "(.out/.inf, o .csv ya fusionado).")
+        desc.setWordWrap(True)
+        desc.setAlignment(Qt.AlignCenter)
+
+        author = QLabel("Desarrollado por Daniel Gómez — EE")
+        author.setAlignment(Qt.AlignCenter)
+        author.setStyleSheet(f"color: {_TEXT_MUTED};")
+
+        for w in (title, version, desc, author):
+            layout.addWidget(w)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PSSE/PSCAD ViEEwer")
+        self.setWindowTitle(f"{__app_name__} — v{__version__}")
         self.resize(1200, 700)
+        self.setMinimumSize(900, 560)
 
         # Establece el ícono de la aplicación
         self.setWindowIcon(QIcon("icono.ico"))
 
         # Panel izquierdo: archivos divididos
         self.dual_tree = DualDropWidget(on_file_deleted=self.remove_series_from_all_plots)
+        self.dual_tree.setMinimumWidth(220)
 
         # Zona de pestañas
         self.tabs = QTabWidget()
@@ -1143,11 +1345,17 @@ class MainWindow(QMainWindow):
         self.btn_export = QPushButton("🖼 Exportar gráficos")
         self.btn_export.clicked.connect(self.export_all_plots)
 
+        self.btn_about = QPushButton("ℹ")
+        self.btn_about.setFixedSize(28, 28)
+        self.btn_about.setToolTip("Acerca de")
+        self.btn_about.clicked.connect(self.show_about)
+
         # Todos los botones de la barra superior se dimensionan según su propio
         # texto (sizeHint) y no crecen al agrandar la ventana; el espacio extra
         # lo absorbe el "stretch" del layout, no los botones.
-        for btn in (self.btn_new_tab, self.btn_reload, self.btn_export, self.btn_save_template, self.btn_load_template):
+        for btn in (self.btn_new_tab, self.btn_reload, self.btn_export, self.btn_save_template, self.btn_load_template, self.btn_about):
             btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            btn.setCursor(Qt.PointingHandCursor)
 
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
@@ -1158,27 +1366,42 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.btn_export)
         btn_layout.addWidget(self.btn_save_template)
         btn_layout.addWidget(self.btn_load_template)
+        btn_layout.addSpacing(6)
+        btn_layout.addWidget(self.btn_about)
 
         top_layout = QVBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.addLayout(btn_layout)
         top_layout.addWidget(self.tabs)
 
         tabs_widget = QWidget()
         tabs_widget.setLayout(top_layout)
-        
-        # Diseño principal
+
+        # Diseño principal: splitter para que el usuario pueda redimensionar
+        # el panel de archivos contra el área de gráficos
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.dual_tree)
+        splitter.addWidget(tabs_widget)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 900])
+
         central = QWidget()
-        layout = QHBoxLayout(central)
-        layout.addWidget(self.dual_tree, 2)
-        layout.addWidget(tabs_widget, 8)
+        central_layout = QHBoxLayout(central)
+        central_layout.setContentsMargins(10, 10, 10, 10)
+        central_layout.addWidget(splitter)
 
         self.setCentralWidget(central)
         self.status_bar = QStatusBar()
         self.status_bar.setLayoutDirection(Qt.RightToLeft)
         self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage(f"{__app_name__} — v{__version__}", 5000)
 
         # Agrega la primera pestaña
         self.add_new_tab()
+
+    def show_about(self):
+        AboutDialog(self).exec_()
 
     def show_tab_context_menu(self, position):
         index = self.tabs.tabBar().tabAt(position)
@@ -1238,10 +1461,11 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage(f"Exportación completada: {tab_name}.png", 5000) 
 
     def save_template(self):
-        ## Used for save templates in JSON format
+        ## Used for save templates in JSON format. Devuelve True si se guardó,
+        ## False si el usuario canceló el diálogo (usado al cerrar la app).
         path, _ = QFileDialog.getSaveFileName(self, "Guardar plantilla", "", "Plantilla JSON (*.json)")
         if not path:
-            return
+            return False
         template = []
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
@@ -1273,18 +1497,20 @@ class MainWindow(QMainWindow):
                     tab_data["plots"].append(plot_info)
             template.append(tab_data)
 
-
-            template_data = {
-                "tabs": template,
-                "files": {
-                    "psse": [self.dual_tree.tree_psse.topLevelItem(i).toolTip(0) for i in range(self.dual_tree.tree_psse.topLevelItemCount())],
-                    "pscad": [self.dual_tree.tree_pscad.topLevelItem(i).toolTip(0) for i in range(self.dual_tree.tree_pscad.topLevelItemCount())]
-                }
+        # NOTA: antes esto quedaba mal indentado dentro del "for" de arriba, lo que
+        # además de rehacerlo en cada vuelta rompía con NameError si no había pestañas.
+        template_data = {
+            "tabs": template,
+            "files": {
+                "psse": [self.dual_tree.tree_psse.topLevelItem(i).toolTip(0) for i in range(self.dual_tree.tree_psse.topLevelItemCount())],
+                "pscad": [self.dual_tree.tree_pscad.topLevelItem(i).toolTip(0) for i in range(self.dual_tree.tree_pscad.topLevelItemCount())]
             }
-                
+        }
+
         with open(path, "w", encoding="utf-8") as f:
             json.dump(template_data, f, indent=2)
         self.statusBar().showMessage("Plantilla guardada.", 3000)
+        return True
 
     def load_template(self):
         # Used for load templates in JSON format
@@ -1383,7 +1609,50 @@ class MainWindow(QMainWindow):
                                 line.remove()
                         widget.ax.legend().set_picker(True)
                         widget.canvas.draw()
-                        
+
+    def _has_content_to_save(self):
+        # Hay algo que se perdería si se cierra sin guardar plantilla: archivos
+        # cargados en los árboles, o algún gráfico con al menos una curva
+        if self.dual_tree.tree_psse.topLevelItemCount() > 0 or self.dual_tree.tree_pscad.topLevelItemCount() > 0:
+            return True
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if hasattr(tab, 'layout'):
+                for j in range(tab.layout.count()):
+                    widget = tab.layout.itemAt(j).widget()
+                    if isinstance(widget, PlotCanvas) and widget.ax.get_lines():
+                        return True
+        return False
+
+    def closeEvent(self, event):
+        # Antes de cerrar, si hay algo cargado que se perdería, ofrece guardar la
+        # plantilla (te lleva al diálogo de "Guardar plantilla"), salir sin guardar
+        # o cancelar el cierre.
+        if not self._has_content_to_save():
+            event.accept()
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Salir de la aplicación",
+            "Hay archivos y/o gráficos cargados que no se guardaron como plantilla.\n\n"
+            "¿Deseas guardar la plantilla antes de salir?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save
+        )
+
+        if reply == QMessageBox.Cancel:
+            event.ignore()
+            return
+
+        if reply == QMessageBox.Save:
+            if not self.save_template():
+                # El usuario canceló el diálogo de "Guardar como" -> no se cierra la app
+                event.ignore()
+                return
+
+        event.accept()
+
 if __name__ == '__main__':
     if sys.platform == 'win32':
         # Sin esto, Windows agrupa el proceso bajo el AppUserModelID por defecto
@@ -1397,7 +1666,7 @@ if __name__ == '__main__':
             print(f"[WARN] No se pudo fijar el AppUserModelID: {e}")
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(TAB_BUTTON_STYLE)
+    app.setStyleSheet(APP_STYLE)
     icon = QtGui.QIcon('icono.ico')
     app.setWindowIcon(icon)
     win = MainWindow()
