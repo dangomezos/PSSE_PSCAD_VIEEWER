@@ -882,7 +882,45 @@ class PlotCanvas(QWidget):
                 legend_line.set_alpha(1.0 if visible else 0.2)
         self.canvas.draw()
 
- 
+
+
+class XLimDialog(QDialog):
+    ''' Único diálogo para elegir mínimo y máximo del eje X, validando que el
+    mínimo sea menor que el máximo antes de dejar cerrar (evita el eje invertido
+    que salía al pedir ambos valores por separado con QInputDialog). '''
+
+    def __init__(self, current_min=0.0, current_max=1.0, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Límites del eje X")
+
+        self.min_spin = QDoubleSpinBox()
+        self.min_spin.setDecimals(4)
+        self.min_spin.setRange(-1e9, 1e9)
+        self.min_spin.setValue(current_min)
+
+        self.max_spin = QDoubleSpinBox()
+        self.max_spin.setDecimals(4)
+        self.max_spin.setRange(-1e9, 1e9)
+        self.max_spin.setValue(current_max)
+
+        layout = QFormLayout(self)
+        layout.addRow("Valor mínimo de X:", self.min_spin)
+        layout.addRow("Valor máximo de X:", self.max_spin)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _validate_and_accept(self):
+        if self.min_spin.value() >= self.max_spin.value():
+            QMessageBox.warning(self, "Rango inválido",
+                "El valor mínimo debe ser menor que el valor máximo.")
+            return
+        self.accept()
+
+    def get_limits(self):
+        return self.min_spin.value(), self.max_spin.value()
 
 class PlotTab(QWidget):
     def __init__(self, parent=None, close_callback=None, get_file_list_callback=None, status_callback=None):
@@ -986,13 +1024,19 @@ class PlotTab(QWidget):
 
     def set_xlim_for_all_plots(self):
         # Set the x-axis limits for all PlotCanvas widgets in this tab
-        from PyQt5.QtWidgets import QInputDialog
-        min_val, ok1 = QInputDialog.getDouble(self, "Límite X mínimo", "Ingrese el valor mínimo de X:", 0.0)
-        if not ok1:
+        current_min, current_max = 0.0, 1.0
+        for i in range(self.layout.count()):
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, PlotCanvas):
+                # Usa el rango actual del primer gráfico como valor inicial del diálogo
+                current_min, current_max = widget.ax.get_xlim()
+                break
+
+        dialog = XLimDialog(current_min, current_max, parent=self)
+        if not dialog.exec_():
             return
-        max_val, ok2 = QInputDialog.getDouble(self, "Límite X máximo", "Ingrese el valor máximo de X:", min_val + 1.0)
-        if not ok2:
-            return
+        min_val, max_val = dialog.get_limits()
+
         for i in range(self.layout.count()):
             widget = self.layout.itemAt(i).widget()
             if isinstance(widget, PlotCanvas):
@@ -1328,6 +1372,13 @@ class MainWindow(QMainWindow):
         self.tabs.tabBarDoubleClicked.connect(self.rename_tab)
         self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
+        # Por defecto QTabBar reparte el ancho disponible entre todas las pestañas
+        # (expanding=True) y las achica por debajo de lo que su texto necesita en
+        # vez de dejarlas crecer; con esto cada pestaña usa el ancho de su título
+        # y, si no entran todas, aparecen flechas de scroll en vez de recortarlas.
+        self.tabs.tabBar().setExpanding(False)
+        self.tabs.tabBar().setElideMode(Qt.ElideNone)
+        self.tabs.setUsesScrollButtons(True)
 
         # Botón para agregar nueva pestaña
         self.btn_new_tab = QPushButton("+ Nueva pestaña")
