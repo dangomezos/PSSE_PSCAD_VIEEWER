@@ -4,7 +4,8 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
-    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox, QSizePolicy)
+    QDialog, QFormLayout, QLineEdit, QListWidget, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PyQt5.QtGui import QColor, QIcon
 from PyQt5 import QtGui
 
@@ -530,36 +531,34 @@ class PlotCanvas(QWidget):
         current_title = self.ax.get_title()
         current_xlabel = self.ax.get_xlabel()
         current_ylabel = self.ax.get_ylabel()
-        lines = self.ax.get_lines()
-        current_labels = [line.get_label() for line in lines]
-        current_colors = [line.get_color() for line in lines]
+        lines = list(self.ax.get_lines())
         grid_enabled = self.ax.xaxis._major_tick_kw.get('gridOn', False) and self.ax.yaxis._major_tick_kw.get('gridOn', False)
-        current_multipliers = [getattr(line, "_multiplier", 1.0) for line in lines]
-        current_offsets = [getattr(line, "_offset", 0.0) for line in lines]
 
-        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, current_labels, current_colors, grid_enabled, self, current_multipliers, current_offsets)
+        dialog = EditLabelsDialog(current_title, current_xlabel, current_ylabel, lines, grid_enabled, self)
         if dialog.exec_():
-            new_title, new_xlabel, new_ylabel, new_labels, new_colors, grid_enabled, multipliers, offsets = dialog.get_data()
+            new_title, new_xlabel, new_ylabel, grid_enabled, rows = dialog.get_data()
             self.ax.set_title(new_title)
             self.ax.set_xlabel(new_xlabel, horizontalalignment='right', x=1.02, labelpad=-10)
             self.ax.set_ylabel(new_ylabel)
             self.ax.grid(grid_enabled)
-            
-            ## Delete lines that are not in new_labels
-            lines = list(self.ax.get_lines())
-            ## Keep the lines that are in new_labels
-            while len(lines) > len(new_labels):
-                line_to_remove = lines.pop()
-                line_to_remove.remove()
 
-            for line, new_label, new_color, multiplier, offset in zip(lines, new_labels, new_colors, multipliers, offsets):
-                line.set_label(new_label)
-                line.set_color(new_color)
+            # Elimina las curvas que el usuario haya sacado de la tabla
+            kept_lines = {id(row["line"]) for row in rows}
+            for line in lines:
+                if id(line) not in kept_lines:
+                    line.remove()
+
+            # Aplica nombre/color/multiplicador/offset a cada curva por referencia directa
+            # (no por posición), así una eliminación en el medio de la lista no desalinea nada
+            for row in rows:
+                line = row["line"]
+                line.set_label(row["label"])
+                line.set_color(row["color"])
                 if not hasattr(line, "_original_ydata"):
                     line._original_ydata = line.get_ydata()
-                line.set_ydata((line._original_ydata * multiplier) + offset)
-                line._multiplier = multiplier  # Guarda el multiplicador actual
-                line._offset = offset  # Guarda el offset actual
+                line.set_ydata((line._original_ydata * row["multiplier"]) + row["offset"])
+                line._multiplier = row["multiplier"]  # Guarda el multiplicador actual
+                line._offset = row["offset"]  # Guarda el offset actual
 
             self.ax.legend().set_picker(True)
             self.canvas.draw()
@@ -855,67 +854,43 @@ class DualDropWidget(QWidget):
         return files
     
 class EditLabelsDialog(QDialog):
-    def __init__(self, current_title, current_xlabel, current_ylabel, line_labels, line_colors, grid_enabled=False, parent=None, multipliers=None, offsets=None):
+    # Columnas de la tabla de curvas
+    COL_ORIGINAL = 0   # Nombre original del canal (no editable)
+    COL_COLOR = 1      # Selector de color
+    COL_LABEL = 2      # Nombre que el usuario le da a la leyenda
+    COL_MULT = 3       # Multiplicador
+    COL_OFFSET = 4     # Offset (suma)
+
+    def __init__(self, current_title, current_xlabel, current_ylabel, lines, grid_enabled=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Editar etiquetas del gráfico")
+        self.resize(720, 420)
 
         self.title_edit = QLineEdit(current_title)
         self.xlabel_edit = QLineEdit(current_xlabel if current_xlabel else "(s)")
         self.ylabel_edit = QLineEdit(current_ylabel)
 
-        self.legends_list = QListWidget()
-        self.btn_delete_series = QPushButton("Eliminar curva seleccionada")
+        self.btn_delete_series = QPushButton("🗑 Eliminar curva(s) seleccionada(s)")
         self.btn_delete_series.clicked.connect(self.delete_selected_series)
-        self.color_map = {}
-        self.mult_spinboxes = []
-        self.offset_spinboxes = []
 
-        if multipliers is None:
-            multipliers = [1.0] * len(line_labels)
-        if offsets is None:
-            offsets = [0.0] * len(line_labels)
+        self.table = QTableWidget(len(lines), 5)
+        self.table.setHorizontalHeaderLabels(["Canal original", "Color", "Nombre en la leyenda", "Multiplicador", "Offset"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(self.COL_ORIGINAL, QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_COLOR, QHeaderView.Fixed)
+        header.setSectionResizeMode(self.COL_LABEL, QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_MULT, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_OFFSET, QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(self.COL_COLOR, 60)
 
-        # Layout para leyenda + multiplicador
-        legend_mult_layout = QVBoxLayout()
-        for idx, (label, color) in enumerate(zip(line_labels, line_colors)):
-            hbox = QHBoxLayout()
-            item = QListWidgetItem(label)
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-            item.setBackground(QColor(color))
-            self.legends_list.addItem(item)
-            self.color_map[label] = color
-
-            # Multiplicador
-            mult_spin = QDoubleSpinBox()
-            mult_spin.setDecimals(4)
-            mult_spin.setMinimum(-1e6)
-            mult_spin.setMaximum(1e6)
-            # Aquí se inicializa con el valor actual:
-            mult_spin.setValue(multipliers[idx] if idx < len(multipliers) else 1.0)
-            mult_spin.setToolTip("Multiplicador para la curva")
-            self.mult_spinboxes.append(mult_spin)
-            
-            # Offset (suma)
-            offset_spin = QDoubleSpinBox()
-            offset_spin.setValue(offsets[idx] if idx < len(offsets) else 0.0)
-            offset_spin.setDecimals(4)
-            offset_spin.setMinimum(-1e6)
-            offset_spin.setMaximum(1e6)
-            offset_spin.setToolTip("Valor a sumar a la curva")
-            self.offset_spinboxes.append(offset_spin)
-        # Widget para leyenda, multiplicador Y offset juntos
-            label_widget = QWidget()
-            label_layout = QHBoxLayout()
-            label_layout.setContentsMargins(0, 0, 0, 0)
-            label_layout.addWidget(QLabel(label))
-            label_layout.addWidget(QLabel(" x "))
-            label_layout.addWidget(mult_spin)
-            label_layout.addWidget(QLabel(" + "))
-            label_layout.addWidget(offset_spin)
-            label_widget.setLayout(label_layout)
-            legend_mult_layout.addWidget(label_widget)  # Agrega el widget al layout
-        
-        self.legends_list.itemDoubleClicked.connect(self.change_color)
+        for row, line in enumerate(lines):
+            channel_original = getattr(line, "channel_name", None) or line.get_label()
+            self._populate_row(row, line, channel_original, line.get_label(), line.get_color(),
+                                getattr(line, "_multiplier", 1.0), getattr(line, "_offset", 0.0))
 
         self.grid_checkbox = QCheckBox("Mostrar grilla")
         self.grid_checkbox.setChecked(bool(grid_enabled))
@@ -925,40 +900,80 @@ class EditLabelsDialog(QDialog):
         layout.addRow("Etiqueta eje X:", self.xlabel_edit)
         layout.addRow("Etiqueta eje Y:", self.ylabel_edit)
         layout.addRow(self.btn_delete_series)
-
-        list_container = QHBoxLayout()
-        list_widget = QWidget()
-        list_widget.setLayout(list_container)
-        list_container.addWidget(self.legends_list)
-        layout.addRow("Leyendas (doble clic para cambiar color):", list_widget)
-        layout.addRow("Multiplicadores:", legend_mult_layout)
+        layout.addRow(self.table)
         layout.addRow(self.grid_checkbox)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        
-    def change_color(self, item):
-        ## Used for change the color of the item in the legends list
-        current_color = item.background().color()
-        new_color = QColorDialog.getColor(current_color, self, "Seleccionar color")
+
+    def _populate_row(self, row, line, channel_original, label, color, multiplier, offset):
+        # Columna "Canal original": informativa, no editable
+        item_original = QTableWidgetItem(channel_original)
+        item_original.setFlags(item_original.flags() & ~Qt.ItemIsEditable)
+        item_original.setToolTip("Nombre original del canal (no editable)")
+        item_original.setData(Qt.UserRole, line)  # referencia a la curva real, usada al leer los datos
+        font = item_original.font()
+        font.setItalic(True)
+        item_original.setFont(font)
+        self.table.setItem(row, self.COL_ORIGINAL, item_original)
+
+        # Columna "Color": botón con el color actual como muestra
+        self.table.setCellWidget(row, self.COL_COLOR, self._make_color_button(color))
+
+        # Columna "Nombre en la leyenda": editable
+        item_label = QTableWidgetItem(label)
+        item_label.setToolTip("Nombre que se mostrará en la leyenda del gráfico")
+        self.table.setItem(row, self.COL_LABEL, item_label)
+
+        # Columnas Multiplicador / Offset
+        self.table.setCellWidget(row, self.COL_MULT, self._make_spinbox(multiplier, "Multiplicador para la curva"))
+        self.table.setCellWidget(row, self.COL_OFFSET, self._make_spinbox(offset, "Valor a sumar a la curva"))
+
+    def _make_color_button(self, color):
+        btn = QPushButton()
+        btn.setFixedSize(40, 22)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip("Cambiar color")
+        btn._color = QColor(color)
+        btn.setStyleSheet(f"background-color: {btn._color.name()}; border: 1px solid #888888; border-radius: 3px;")
+        btn.clicked.connect(lambda _checked=False, b=btn: self._pick_color(b))
+        return btn
+
+    def _pick_color(self, btn):
+        new_color = QColorDialog.getColor(btn._color, self, "Seleccionar color")
         if new_color.isValid():
-            item.setBackground(new_color)
+            btn._color = new_color
+            btn.setStyleSheet(f"background-color: {new_color.name()}; border: 1px solid #888888; border-radius: 3px;")
+
+    def _make_spinbox(self, value, tooltip):
+        spin = QDoubleSpinBox()
+        spin.setDecimals(4)
+        spin.setMinimum(-1e6)
+        spin.setMaximum(1e6)
+        spin.setValue(value)
+        spin.setToolTip(tooltip)
+        return spin
 
     def get_data(self):
-        ## Used for get the data from the dialog
-        labels = [self.legends_list.item(i).text() for i in range(self.legends_list.count())]
-        colors = [self.legends_list.item(i).background().color().name() for i in range(self.legends_list.count())]
-        multipliers = [spin.value() for spin in self.mult_spinboxes]
-        offsets = [spin.value() for spin in self.offset_spinboxes]
-        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), labels, colors, self.grid_checkbox.isChecked(), multipliers, offsets
+        ## Used for get the data from the dialog: una entrada por curva que sigue en la tabla,
+        ## identificada por la referencia real a la línea (robusto ante eliminaciones intermedias).
+        rows = []
+        for row in range(self.table.rowCount()):
+            line = self.table.item(row, self.COL_ORIGINAL).data(Qt.UserRole)
+            label = self.table.item(row, self.COL_LABEL).text()
+            color = self.table.cellWidget(row, self.COL_COLOR)._color.name()
+            multiplier = self.table.cellWidget(row, self.COL_MULT).value()
+            offset = self.table.cellWidget(row, self.COL_OFFSET).value()
+            rows.append({"line": line, "label": label, "color": color, "multiplier": multiplier, "offset": offset})
+        return self.title_edit.text(), self.xlabel_edit.text(), self.ylabel_edit.text(), self.grid_checkbox.isChecked(), rows
+
     def delete_selected_series(self):
-        row = self.legends_list.currentRow()
-        if row >= 0:
-            self.legends_list.takeItem(row)
-            # También elimina el spinbox correspondiente
-            self.mult_spinboxes.pop(row)
+        # Elimina de la tabla todas las filas seleccionadas (de abajo hacia arriba para no desfasar índices)
+        rows = sorted({index.row() for index in self.table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self.table.removeRow(row)
 
 class ChannelSelectionDialog(QDialog):
     def __init__(self, channels, parent=None):
