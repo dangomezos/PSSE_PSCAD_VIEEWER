@@ -4,8 +4,8 @@
 # GUI lógica (Python)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTreeWidget, QTreeWidgetItem,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QFileDialog, QMessageBox, QInputDialog, QMenu,
-    QDialog, QFormLayout, QLineEdit, QListWidget, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
+    QDialog, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QColorDialog, QCheckBox, QStatusBar, QDoubleSpinBox, QComboBox, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QGroupBox)
 from PyQt5.QtGui import QColor, QIcon
 from PyQt5 import QtGui
 
@@ -326,6 +326,7 @@ class PlotCanvas(QWidget):
         self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.canvas.setFocus()
         self.ax = self.canvas.figure.add_subplot(111)
+        self.ax.grid(True)  # La grilla queda activa por defecto en todo gráfico nuevo
 
         canvas_container = QVBoxLayout()
         canvas_container.addWidget(self.canvas)
@@ -483,13 +484,18 @@ class PlotCanvas(QWidget):
         # Plot channel from file
         if not self.get_file_list_callback:
             return
-        files = self.get_file_list_callback()
-        if not files:
+        grouped_files = self.get_file_list_callback()
+        psse_files = grouped_files.get('psse', [])
+        pscad_files = grouped_files.get('pscad', [])
+        if not psse_files and not pscad_files:
             QMessageBox.information(self, "Sin archivos", "No hay archivos cargados.")
             return
 
-        file, ok = QInputDialog.getItem(self, "Seleccionar archivo", "Archivo:", files, 0, False)
-        if not ok:
+        file_dialog = FileSelectionDialog(psse_files, pscad_files, parent=self)
+        if not file_dialog.exec_():
+            return
+        file = file_dialog.get_selected_path()
+        if not file:
             return
 
         if file.endswith(".out"):
@@ -623,6 +629,7 @@ class PlotCanvas(QWidget):
         self.ax.cla()
         self.ax.callbacks.connect("xlim_changed", self.on_xlim_changed)
         self.ax.set_title("")
+        self.ax.grid(True)  # cla() apaga la grilla; la restauramos ya que es el default
         self.canvas.draw()
 
     def on_mouse_press(self, event):
@@ -880,6 +887,16 @@ class DualDropWidget(QWidget):
                 item = tree.topLevelItem(i)
                 files.append(item.toolTip(0))
         return files
+
+    def get_files_grouped(self):
+        ## Igual que get_all_files pero separado por árbol y con (nombre a mostrar, ruta completa),
+        ## para poder listar sólo el nombre en el selector de archivos
+        grouped = {'psse': [], 'pscad': []}
+        for key, tree in (('psse', self.tree_psse), ('pscad', self.tree_pscad)):
+            for i in range(tree.topLevelItemCount()):
+                item = tree.topLevelItem(i)
+                grouped[key].append((item.text(0), item.toolTip(0)))
+        return grouped
     
 class EditLabelsDialog(QDialog):
     # Columnas de la tabla de curvas
@@ -1003,6 +1020,67 @@ class EditLabelsDialog(QDialog):
         for row in rows:
             self.table.removeRow(row)
 
+class FileSelectionDialog(QDialog):
+    ''' Elegir un archivo cargado para agregar un canal, separado en dos grupos
+    (PSSE / PSCAD) y mostrando sólo el nombre en vez de la ruta completa. '''
+
+    def __init__(self, psse_files, pscad_files, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Seleccionar archivo")
+        self.resize(360, 420)
+
+        layout = QVBoxLayout(self)
+
+        self.list_psse = self._make_group(layout, "PSSE", psse_files)
+        self.list_pscad = self._make_group(layout, "PSCAD", pscad_files)
+
+        # Sólo puede haber un archivo elegido entre ambas listas a la vez
+        self.list_psse.itemSelectionChanged.connect(lambda: self._sync_selection(self.list_psse, self.list_pscad))
+        self.list_pscad.itemSelectionChanged.connect(lambda: self._sync_selection(self.list_pscad, self.list_psse))
+
+        # Doble clic elige y confirma directamente
+        self.list_psse.itemDoubleClicked.connect(lambda _: self.accept())
+        self.list_pscad.itemDoubleClicked.connect(lambda _: self.accept())
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+        layout.addWidget(self.buttons)
+
+        # Si sólo hay un archivo cargado en total, se preselecciona directamente
+        if len(psse_files) + len(pscad_files) == 1:
+            (self.list_psse if psse_files else self.list_pscad).setCurrentRow(0)
+
+    def _make_group(self, layout, title, files):
+        group = QGroupBox(title)
+        group_layout = QVBoxLayout(group)
+        list_widget = QListWidget()
+        for label, path in files:
+            item = QListWidgetItem(label)
+            item.setToolTip(path)
+            item.setData(Qt.UserRole, path)
+            list_widget.addItem(item)
+        group_layout.addWidget(list_widget)
+        group.setVisible(bool(files))
+        layout.addWidget(group)
+        return list_widget
+
+    def _sync_selection(self, changed_list, other_list):
+        # Al elegir en una lista, deselecciona la otra para que sólo quede un archivo elegido
+        if changed_list.selectedItems():
+            other_list.blockSignals(True)
+            other_list.clearSelection()
+            other_list.blockSignals(False)
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(bool(self.get_selected_path()))
+
+    def get_selected_path(self):
+        for lst in (self.list_psse, self.list_pscad):
+            items = lst.selectedItems()
+            if items:
+                return items[0].data(Qt.UserRole)
+        return None
+
 class ChannelSelectionDialog(QDialog):
     def __init__(self, channels, parent=None):
         super().__init__(parent)
@@ -1117,8 +1195,8 @@ class MainWindow(QMainWindow):
             self.remove_tab(tab_widget)
 
     def get_loaded_files(self):
-        ## Used for get all files loaded in the dual tree
-        return self.dual_tree.get_all_files()
+        ## Used for get all files loaded in the dual tree, separados por PSSE/PSCAD
+        return self.dual_tree.get_files_grouped()
            
     def add_new_tab(self):
         ## Used for add a new tab with a PlotTab widget
