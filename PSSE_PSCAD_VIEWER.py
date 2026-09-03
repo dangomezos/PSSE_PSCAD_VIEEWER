@@ -207,7 +207,6 @@ QTabBar::tab {{
 QTabBar::tab:selected {{
     background-color: {_PANEL};
     color: {_TEXT};
-    font-weight: 600;
 }}
 QTabBar::tab:hover {{
     background-color: white;
@@ -928,6 +927,17 @@ class XLimDialog(QDialog):
     def get_limits(self):
         return self.min_spin.value(), self.max_spin.value()
 
+# Caracteres no permitidos en nombres de archivo de Windows: \ / : * ? " < > |
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+def sanitize_filename(name, fallback="grafico"):
+    # Los nombres de pestaña son de libre texto, pero se usan tal cual como nombre
+    # de archivo al exportar (ej. "A/B" se interpretaría como una subcarpeta "A"
+    # inexistente y fallaría con FileNotFoundError). Reemplaza esos caracteres y
+    # recorta espacios/puntos sobrantes al final (tampoco válidos en Windows).
+    cleaned = _INVALID_FILENAME_CHARS.sub("_", name).strip().strip(".")
+    return cleaned or fallback
+
 class PlotTab(QWidget):
     def __init__(self, parent=None, close_callback=None, get_file_list_callback=None, status_callback=None):
         super().__init__(parent)
@@ -985,7 +995,8 @@ class PlotTab(QWidget):
         for ax, plot in zip(axs, plots):
             lines = plot.ax.get_lines()
             for line in lines:
-                ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label(), color=line.get_color())
+                ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label(), color=line.get_color(),
+                        linewidth=line.get_linewidth(), linestyle=line.get_linestyle(), visible=line.get_visible())
             ax.set_xlim(plot.ax.get_xlim())
             ax.set_ylim(plot.ax.get_ylim())
             ax.set_title(plot.ax.get_title())
@@ -994,10 +1005,12 @@ class PlotTab(QWidget):
             # ax.grid(True)
             xgrid = any(line.get_visible() for line in plot.ax.get_xgridlines())
             ygrid = any(line.get_visible() for line in plot.ax.get_ygridlines())
-            ax.grid(xgrid and ygrid)            
+            ax.grid(xgrid and ygrid)
             ax.legend()
         fig.tight_layout()
-        fig.savefig(os.path.join(directory, f"{base_name}.png"))
+        # El nombre de pestaña es texto libre; se sanea para que nunca se interprete
+        # como una ruta con subcarpetas (ver sanitize_filename)
+        fig.savefig(os.path.join(directory, f"{sanitize_filename(base_name)}.png"))
         plt.close(fig)
 
     def add_plot_canvas(self):
@@ -1505,13 +1518,62 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu()
         rename_action = menu.addAction("Renombrar pestaña")
+        duplicate_action = menu.addAction("Duplicar pestaña")
+        export_action = menu.addAction("🖼 Exportar esta pestaña")
         close_action = menu.addAction("Eliminar pestaña")
         action = menu.exec_(self.tabs.tabBar().mapToGlobal(position))
         if action == rename_action:
             self.rename_tab(index)
+        elif action == duplicate_action:
+            self.duplicate_tab(index)
+        elif action == export_action:
+            self.export_single_tab(index)
         elif action == close_action:
             tab_widget = self.tabs.widget(index)
             self.remove_tab(tab_widget)
+
+    def export_single_tab(self, index):
+        # Exporta únicamente los gráficos de esta pestaña como PNG, sin tocar el
+        # resto (alternativa a "🖼 Exportar gráficos", que exporta todas las pestañas)
+        if index == -1:
+            return
+        tab = self.tabs.widget(index)
+        if not hasattr(tab, 'export_plots_combined'):
+            return
+        has_plots = any(isinstance(tab.layout.itemAt(j).widget(), PlotCanvas) for j in range(tab.layout.count()))
+        if not has_plots:
+            QMessageBox.information(self, "Sin gráficos", "Esta pestaña no tiene gráficos para exportar.")
+            return
+        tab_name = self.tabs.tabText(index)
+        save_dir = QFileDialog.getExistingDirectory(self, f"Exportar '{tab_name}' a carpeta", "")
+        if save_dir:
+            tab.export_plots_combined(save_dir, tab_name)
+            self.statusBar().showMessage(f"Exportación completada: {sanitize_filename(tab_name)}.png", 5000)
+
+    def _next_duplicate_name(self, base_name):
+        # "Gráfico 1" -> "Gráfico 1_1"; si ya existe, sigue con "_2", "_3", ...
+        # Si base_name ya terminaba en "_N" (ej. duplicar una copia), sigue
+        # numerando sobre la misma raíz en vez de acumular sufijos ("_1_1").
+        m = re.match(r'^(.*)_(\d+)$', base_name)
+        root = m.group(1) if m else base_name
+        existing = {self.tabs.tabText(i) for i in range(self.tabs.count())}
+        n = 1
+        while f"{root}_{n}" in existing:
+            n += 1
+        return f"{root}_{n}"
+
+    def duplicate_tab(self, index):
+        # Duplica la pestaña (gráficos, curvas, ejes, etc.) con un nombre derivado
+        # del original + "_N"
+        if index == -1:
+            return
+        source_tab = self.tabs.widget(index)
+        if not isinstance(source_tab, PlotTab):
+            return
+        new_tab = self._build_tab_from_plots(self._capture_tab_plots(source_tab))
+        new_name = self._next_duplicate_name(self.tabs.tabText(index))
+        new_index = self.tabs.insertTab(index + 1, new_tab, new_name)
+        self.tabs.setCurrentIndex(new_index)
 
     def get_loaded_files(self):
         ## Used for get all files loaded in the dual tree, separados por PSSE/PSCAD
@@ -1537,7 +1599,15 @@ class MainWindow(QMainWindow):
             current_name = self.tabs.tabText(index)
             new_name, ok = QInputDialog.getText(self, "Renombrar pestaña", "Nuevo nombre:", text=current_name)
             if ok and new_name:
-                self.tabs.setTabText(index, new_name)
+                # El nombre de la pestaña se usa tal cual como nombre de archivo al
+                # exportar (ver sanitize_filename); se avisa si hubo que ajustarlo
+                clean_name = sanitize_filename(new_name)
+                if clean_name != new_name.strip():
+                    QMessageBox.information(self, "Nombre ajustado",
+                        "El nombre de la pestaña no puede contener los caracteres \\ / : * ? \" < > | "
+                        "(se usa para nombrar el archivo al exportar los gráficos).\n\n"
+                        f"Se ajustó a:\n{clean_name}")
+                self.tabs.setTabText(index, clean_name)
 
     def reload_files(self):
         ## Used for reload all plots in the tabs
@@ -1556,6 +1626,96 @@ class MainWindow(QMainWindow):
                     tab.export_plots_combined(save_dir, tab_name) 
                     self.statusBar().showMessage(f"Exportación completada: {tab_name}.png", 5000) 
 
+    def _capture_tab_plots(self, tab):
+        # Captura el estado de todos los PlotCanvas de una pestaña (título, ejes,
+        # curvas con su archivo/canal/color/grosor/estilo/multiplicador/offset) en
+        # la misma estructura que usan las plantillas JSON. La reutilizan tanto
+        # save_template como duplicate_tab.
+        plots = []
+        for j in range(tab.layout.count()):
+            widget = tab.layout.itemAt(j).widget()
+            if isinstance(widget, PlotCanvas):
+                plot_info = {
+                    "title": widget.ax.get_title(),
+                    "xlabel": widget.ax.get_xlabel(),
+                    "ylabel": widget.ax.get_ylabel(),
+                    "lines": [],
+                    "xlim": widget.ax.get_xlim(),
+                    "ylim": widget.ax.get_ylim(),
+                    "grid": widget.ax.xaxis._major_tick_kw.get('gridOn', False) and widget.ax.yaxis._major_tick_kw.get('gridOn', False)
+                }
+                for line in widget.ax.get_lines():
+                    plot_info["lines"].append({
+                        "file": getattr(line, "source_file", None),
+                        "channel": getattr(line, "channel_name", None),
+                        "label": line.get_label(),
+                        "color": line.get_color(),
+                        "linewidth": line.get_linewidth(),
+                        "linestyle": line.get_linestyle(),
+                        "visible": line.get_visible(),
+                        "init_time": getattr(line, "_init_time", 0),
+                        "multiplier": getattr(line, "_multiplier", 1.0),
+                        "offset": getattr(line, "_offset", 0.0),
+                    })
+                plots.append(plot_info)
+        return plots
+
+    def _build_tab_from_plots(self, plots):
+        # Construye una pestaña nueva (PlotTab + sus PlotCanvas) a partir de la
+        # misma estructura que arma _capture_tab_plots / usan las plantillas JSON.
+        # La reutilizan tanto load_template como duplicate_tab.
+        tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files, status_callback=self.status_bar.showMessage)
+        for plot_info in plots:
+            plot_canvas = PlotCanvas(self.get_loaded_files, self.status_bar.showMessage, parent_tab=tab)
+            tab.layout.addWidget(plot_canvas)
+            plot_canvas.ax.set_title(plot_info.get("title", ""))
+            plot_canvas.ax.set_xlabel(plot_info.get("xlabel", ""), horizontalalignment='right', x=1.02, labelpad=-10)
+            plot_canvas.ax.set_ylabel(plot_info.get("ylabel", ""))
+            plot_canvas.ax.grid(plot_info.get("grid", False))
+
+            ## Conect events
+            plot_canvas.canvas.mpl_connect("pick_event", plot_canvas.on_pick_legend)
+            plot_canvas.canvas.mpl_connect("scroll_event", plot_canvas.on_scroll)
+            plot_canvas.canvas.mpl_connect("motion_notify_event", plot_canvas.on_mouse_drag)
+            plot_canvas.canvas.mpl_connect("button_press_event", plot_canvas.on_mouse_press)
+            plot_canvas.canvas.mpl_connect("button_release_event", plot_canvas.on_mouse_release)
+            plot_canvas._last_mouse_pos = None
+
+            for line_info in plot_info["lines"]:
+                file = line_info["file"]
+                channel = line_info["channel"]
+                if file and channel and os.path.isfile(file):
+                    init_time = line_info.get("init_time", 0)
+                    if file.endswith(".out"):
+                        time, values = get_channel_data_from_out(file, channel)
+                    elif file.endswith(".csv"):
+                        time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
+                    elif file.endswith(".inf"):
+                        time, values = get_time_and_data_from_pscad(file, channel, init_time=init_time)
+                    else:
+                        continue
+                    multiplier = line_info.get("multiplier", 1.0)
+                    offset = line_info.get("offset", 0.0)
+                    line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"],
+                                                linewidth=line_info.get("linewidth", 1.5),
+                                                linestyle=line_info.get("linestyle", "-"))[0]
+                    line.set_visible(line_info.get("visible", True))
+                    line.source_file = file
+                    line.channel_name = channel
+                    line._init_time = init_time
+                    line._original_ydata = line.get_ydata()
+                    if multiplier != 1.0 or offset != 0.0:
+                        line.set_ydata((line._original_ydata * multiplier) + offset)
+                    line._multiplier = multiplier
+                    line._offset = offset
+            if "xlim" in plot_info:
+                plot_canvas.ax.set_xlim(plot_info["xlim"])
+            if "ylim" in plot_info:
+                plot_canvas.ax.set_ylim(plot_info["ylim"])
+            plot_canvas.ax.legend().set_picker(True)
+            plot_canvas.canvas.draw()
+        return tab
+
     def save_template(self):
         ## Used for save templates in JSON format. Devuelve True si se guardó,
         ## False si el usuario canceló el diálogo (usado al cerrar la app).
@@ -1565,38 +1725,9 @@ class MainWindow(QMainWindow):
         template = []
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            tab_data = {"name": self.tabs.tabText(i), "plots": []}
-            for j in range(tab.layout.count()):
-                widget = tab.layout.itemAt(j).widget()
-                if isinstance(widget, PlotCanvas):
-                    grid_on = widget.ax.xaxis._major_tick_kw.get('gridOn', False) and widget.ax.yaxis._major_tick_kw.get('gridOn', False)
-                    plot_info = {
-                        "title": widget.ax.get_title(),
-                        "xlabel": widget.ax.get_xlabel(),
-                        "ylabel": widget.ax.get_ylabel(),
-                        "lines": [],
-                        "xlim": widget.ax.get_xlim(),
-                        "ylim": widget.ax.get_ylim(),
-                        "grid": widget.ax.xaxis._major_tick_kw.get('gridOn', False) and widget.ax.yaxis._major_tick_kw.get('gridOn', False)
-                    }
-                    for line in widget.ax.get_lines():
-                        plot_info["lines"].append({
-                            "file": getattr(line, "source_file", None),
-                            "channel": getattr(line, "channel_name", None),
-                            "label": line.get_label(),
-                            "color": line.get_color(),
-                            "linewidth": line.get_linewidth(),
-                            "linestyle": line.get_linestyle(),
-                            "visible": line.get_visible(),
-                            "init_time": getattr(line, "_init_time", 0),
-                            "multiplier": getattr(line, "_multiplier", 1.0),
-                            "offset": getattr(line, "_offset", 0.0),
-                        })
-                    tab_data["plots"].append(plot_info)
+            tab_data = {"name": self.tabs.tabText(i), "plots": self._capture_tab_plots(tab)}
             template.append(tab_data)
 
-        # NOTA: antes esto quedaba mal indentado dentro del "for" de arriba, lo que
-        # además de rehacerlo en cada vuelta rompía con NameError si no había pestañas.
         template_data = {
             "tabs": template,
             "files": {
@@ -1642,57 +1773,8 @@ class MainWindow(QMainWindow):
         # Restaurar las pestañas y gráficos como antes
         self.tabs.clear()
         for tab_data in template_data["tabs"]:
-            tab = PlotTab(close_callback=self.remove_tab, get_file_list_callback=self.get_loaded_files, status_callback=self.status_bar.showMessage)
+            tab = self._build_tab_from_plots(tab_data["plots"])
             self.tabs.addTab(tab, tab_data["name"])
-            for plot_info in tab_data["plots"]:
-                plot_canvas = PlotCanvas(self.get_loaded_files, self.status_bar.showMessage, parent_tab=tab)
-                tab.layout.addWidget(plot_canvas)
-                plot_canvas.ax.set_title(plot_info.get("title", ""))
-                plot_canvas.ax.set_xlabel(plot_info.get("xlabel", ""), horizontalalignment='right', x=1.02, labelpad=-10)
-                plot_canvas.ax.set_ylabel(plot_info.get("ylabel", ""))
-                plot_canvas.ax.grid(plot_info.get("grid", False))
-                
-                ## Conect events
-                plot_canvas.canvas.mpl_connect("pick_event", plot_canvas.on_pick_legend)
-                plot_canvas.canvas.mpl_connect("scroll_event", plot_canvas.on_scroll)
-                plot_canvas.canvas.mpl_connect("motion_notify_event", plot_canvas.on_mouse_drag)
-                plot_canvas.canvas.mpl_connect("button_press_event", plot_canvas.on_mouse_press)
-                plot_canvas.canvas.mpl_connect("button_release_event", plot_canvas.on_mouse_release)
-                plot_canvas._last_mouse_pos = None                
-                
-                for line_info in plot_info["lines"]:
-                    file = line_info["file"]
-                    channel = line_info["channel"]
-                    if file and channel and os.path.isfile(file):
-                        init_time = line_info.get("init_time", 0)
-                        if file.endswith(".out"):
-                            time, values = get_channel_data_from_out(file, channel)
-                        elif file.endswith(".csv"):
-                            time, values = get_time_and_data_from_csv(file, channel, init_time=init_time)
-                        elif file.endswith(".inf"):
-                            time, values = get_time_and_data_from_pscad(file, channel, init_time=init_time)
-                        else:
-                            continue
-                        multiplier = line_info.get("multiplier", 1.0)
-                        offset = line_info.get("offset", 0.0)
-                        line = plot_canvas.ax.plot(time, values, label=line_info["label"], color=line_info["color"],
-                                                    linewidth=line_info.get("linewidth", 1.5),
-                                                    linestyle=line_info.get("linestyle", "-"))[0]
-                        line.set_visible(line_info.get("visible", True))
-                        line.source_file = file
-                        line.channel_name = channel
-                        line._init_time = init_time
-                        line._original_ydata = line.get_ydata()
-                        if multiplier != 1.0 or offset != 0.0:
-                            line.set_ydata((line._original_ydata * multiplier) + offset)
-                        line._multiplier = multiplier
-                        line._offset = offset
-                if "xlim" in plot_info:
-                    plot_canvas.ax.set_xlim(plot_info["xlim"])
-                if "ylim" in plot_info:
-                    plot_canvas.ax.set_ylim(plot_info["ylim"])
-                plot_canvas.ax.legend().set_picker(True)
-                plot_canvas.canvas.draw()
         self.statusBar().showMessage("Plantilla cargada.", 3000)
         
     def remove_series_from_all_plots(self, filepath):
