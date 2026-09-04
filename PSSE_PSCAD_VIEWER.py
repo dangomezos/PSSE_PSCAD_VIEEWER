@@ -1127,13 +1127,26 @@ class DualDropWidget(QWidget):
     
 class EditLabelsDialog(QDialog):
     # Columnas de la tabla de curvas
-    COL_ORIGINAL = 0   # Nombre original del canal (no editable)
-    COL_COLOR = 1      # Selector de color
-    COL_LABEL = 2      # Nombre que el usuario le da a la leyenda
-    COL_WIDTH = 3      # Grosor de la línea
-    COL_STYLE = 4      # Estilo de la línea (sólido, punteado, etc.)
-    COL_MULT = 5       # Multiplicador
-    COL_OFFSET = 6     # Offset (suma)
+    COL_FILE = 0        # Archivo de origen (no editable)
+    COL_ORIGINAL = 1    # Nombre original del canal (no editable)
+    COL_COLOR = 2        # Selector de color
+    COL_LABEL = 3        # Nombre que el usuario le da a la leyenda
+    COL_WIDTH = 4        # Grosor de la línea
+    COL_STYLE = 5        # Estilo de la línea (sólido, punteado, etc.)
+    COL_MULT = 6         # Multiplicador
+    COL_OFFSET = 7       # Offset (suma)
+
+    # Ancho inicial de cada columna (px); el usuario puede arrastrarlas para cambiarlo
+    COLUMN_WIDTHS = {
+        COL_FILE: 150,
+        COL_ORIGINAL: 180,
+        COL_COLOR: 60,
+        COL_LABEL: 200,
+        COL_WIDTH: 70,
+        COL_STYLE: 110,
+        COL_MULT: 100,
+        COL_OFFSET: 90,
+    }
 
     # (texto a mostrar, código de linestyle de matplotlib)
     LINESTYLE_OPTIONS = [
@@ -1146,7 +1159,7 @@ class EditLabelsDialog(QDialog):
     def __init__(self, current_title, current_xlabel, current_ylabel, lines, grid_enabled=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Editar etiquetas del gráfico")
-        self.resize(860, 420)
+        self.resize(980, 420)
 
         self.title_edit = QLineEdit(current_title)
         self.xlabel_edit = QLineEdit(current_xlabel if current_xlabel else "(s)")
@@ -1155,26 +1168,25 @@ class EditLabelsDialog(QDialog):
         self.btn_delete_series = QPushButton("🗑 Eliminar curva(s) seleccionada(s)")
         self.btn_delete_series.clicked.connect(self.delete_selected_series)
 
-        self.table = QTableWidget(len(lines), 7)
-        self.table.setHorizontalHeaderLabels(["Canal original", "Color", "Nombre en la leyenda", "Grosor", "Estilo", "Multiplicador", "Offset"])
+        self.table = QTableWidget(len(lines), 8)
+        self.table.setHorizontalHeaderLabels(["Archivo", "Canal original", "Color", "Nombre en la leyenda", "Grosor", "Estilo", "Multiplicador", "Offset"])
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(self.COL_ORIGINAL, QHeaderView.Stretch)
-        header.setSectionResizeMode(self.COL_COLOR, QHeaderView.Fixed)
-        header.setSectionResizeMode(self.COL_LABEL, QHeaderView.Stretch)
-        header.setSectionResizeMode(self.COL_WIDTH, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_STYLE, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_MULT, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_OFFSET, QHeaderView.ResizeToContents)
-        self.table.setColumnWidth(self.COL_COLOR, 60)
+        # Todas las columnas quedan en modo "Interactive": tamaño inicial razonable,
+        # pero el usuario puede arrastrar el borde de cualquiera para cambiarlo.
+        for col, width in self.COLUMN_WIDTHS.items():
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
+            self.table.setColumnWidth(col, width)
+        header.setStretchLastSection(True)  # el espacio sobrante lo absorbe la última columna
 
         for row, line in enumerate(lines):
             channel_original = getattr(line, "channel_name", None) or line.get_label()
-            self._populate_row(row, line, channel_original, line.get_label(), line.get_color(),
+            self._populate_row(row, line, self._source_display_name(getattr(line, "source_file", None)),
+                                channel_original, line.get_label(), line.get_color(),
                                 line.get_linewidth(), line.get_linestyle(),
                                 getattr(line, "_multiplier", 1.0), getattr(line, "_offset", 0.0))
 
@@ -1194,7 +1206,26 @@ class EditLabelsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _populate_row(self, row, line, channel_original, label, color, linewidth, linestyle, multiplier, offset):
+    def _source_display_name(self, source_file):
+        # Nombre corto del archivo de origen, igual al que se ve en el árbol
+        # lateral (casos PSCAD sin la extensión .inf)
+        if not source_file:
+            return ""
+        base = os.path.basename(source_file)
+        if source_file.endswith(".inf"):
+            base = os.path.splitext(base)[0]
+        return base
+
+    def _populate_row(self, row, line, file_display, channel_original, label, color, linewidth, linestyle, multiplier, offset):
+        # Columna "Archivo": informativa, no editable
+        item_file = QTableWidgetItem(file_display)
+        item_file.setFlags(item_file.flags() & ~Qt.ItemIsEditable)
+        item_file.setToolTip(getattr(line, "source_file", None) or "")
+        font_file = item_file.font()
+        font_file.setItalic(True)
+        item_file.setFont(font_file)
+        self.table.setItem(row, self.COL_FILE, item_file)
+
         # Columna "Canal original": informativa, no editable
         item_original = QTableWidgetItem(channel_original)
         item_original.setFlags(item_original.flags() & ~Qt.ItemIsEditable)
